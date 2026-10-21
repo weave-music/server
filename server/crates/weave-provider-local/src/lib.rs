@@ -104,10 +104,20 @@ impl MediaProvider for LocalFilesystemProvider {
             .all_audio_paths()
             .into_iter()
             .filter(|path| {
-                path.file_stem()
+                let title_matches = path
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .map(|s| s.to_lowercase().contains(&needle))
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                // Also match on the album (folder) name, not just the
+                // filename — otherwise searching an album's title only
+                // surfaces it when a track happens to share that text.
+                let album_matches = self
+                    .album_info(path)
+                    .0
+                    .map(|album| album.to_lowercase().contains(&needle))
+                    .unwrap_or(false);
+                title_matches || album_matches
             })
             .take(query.limit)
             .map(|path| self.track_from_path(&path))
