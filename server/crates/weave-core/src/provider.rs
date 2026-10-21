@@ -44,4 +44,31 @@ pub trait MediaProvider: Send + Sync {
 
     /// Returns a URL or local path the server can stream/serve from.
     async fn resolve(&self, source_ref: &str) -> Result<String, ProviderError>;
+
+    /// An unfiltered sample of this provider's catalog, for "featured"/
+    /// discovery surfaces. Default just searches for nothing; providers for
+    /// which an empty query doesn't make sense (e.g. one that requires a
+    /// search term) should override this.
+    async fn browse(&self, limit: usize) -> Result<Vec<Track>, ProviderError> {
+        self.search(&SearchQuery { text: String::new(), limit }).await
+    }
+
+    /// Tracks related to the given one — "radio"/"more like this", seeded
+    /// off a track the listener just played. Default: unsupported.
+    async fn radio(&self, _source_ref: &str, _limit: usize) -> Result<Vec<Track>, ProviderError> {
+        Ok(Vec::new())
+    }
+
+    /// More tracks from the artist identified by `Track::artist_ref`.
+    /// Default: unsupported (most providers have no reliable artist
+    /// concept to browse by).
+    async fn artist_tracks(&self, _artist_ref: &str, _limit: usize) -> Result<Vec<Track>, ProviderError> {
+        Ok(Vec::new())
+    }
+
+    /// The tracks that make up the album identified by `Track::album_ref`.
+    /// Default: unsupported.
+    async fn album_tracks(&self, _album_ref: &str, _limit: usize) -> Result<Vec<Track>, ProviderError> {
+        Ok(Vec::new())
+    }
 }

@@ -33,6 +33,11 @@ audio** behind one player, with **live handoff** between devices.
   (Authelia/Authentik/Keycloak) support.
 - Admin role(s) manage users, providers, and system config via a full
   web-based admin dashboard (not just config files).
+- **Implemented so far**: built-in accounts (SQLite-backed, Argon2 password
+  hashing, bearer-token sessions), first-run setup creates the initial admin,
+  admin-only user creation endpoint. OIDC/SSO and the admin dashboard UI are
+  not built yet. Database choice: SQLite (file in the `/config` volume) —
+  matches Jellyfin/Navidrome/the *arr stack, no extra container to run.
 
 ## 4. Media Sources ("Providers")
 
@@ -162,7 +167,6 @@ in phases after the MVP proves the core server/provider/client architecture.
 
 - Final plugin-loading architecture for third-party providers (sidecar vs.
   WASM vs. other — paused mid-discussion).
-- Database choice (not yet discussed — e.g. Postgres vs. SQLite).
 - Live-handoff session protocol details (WebSocket design, how control
   transfer is negotiated between clients).
 - iOS native app timeline (explicitly deferred after Android).

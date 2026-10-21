@@ -18,28 +18,28 @@ pub struct TrackSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Artist {
-    pub id: Uuid,
-    pub name: String,
-    pub musicbrainz_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Album {
-    pub id: Uuid,
-    pub title: String,
-    pub artist_id: Uuid,
-    pub musicbrainz_id: Option<String>,
-    pub release_year: Option<u16>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub id: Uuid,
     pub title: String,
-    pub artist_id: Uuid,
-    pub album_id: Option<Uuid>,
     pub duration_secs: Option<u32>,
     pub track_number: Option<u32>,
     pub sources: Vec<TrackSource>,
+    /// Not available for every provider yet — local files have no tag-based
+    /// cover art extraction (REQUIREMENTS.md notes this as future work).
+    pub artwork_url: Option<String>,
+
+    pub artist_name: Option<String>,
+    /// Provider-specific id usable with `MediaProvider::artist_tracks` to
+    /// fetch more from this artist. `None` means the provider has no artist
+    /// browsing for this track (e.g. local files have no reliable artist
+    /// convention to assume).
+    pub artist_ref: Option<String>,
+
+    pub album_name: Option<String>,
+    /// Provider-specific id usable with `MediaProvider::album_tracks`.
+    /// `None` means no album browsing available (true for all yt-dlp
+    /// tracks today — YouTube has no reliable album concept outside of
+    /// YouTube Music's own artist pages, which yt-dlp doesn't expose
+    /// cleanly; see weave-provider-ytdlp).
+    pub album_ref: Option<String>,
 }

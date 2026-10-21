@@ -1,68 +1,135 @@
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { AdminView } from "./AdminView";
+import { AuthView } from "./AuthView";
+import { DetailView, type DetailTarget } from "./DetailView";
+import { DiscoverView } from "./DiscoverView";
+import { fetchRadio } from "./api";
+import { NavTabs } from "./NavTabs";
+import { NowPlayingView } from "./NowPlayingView";
+import { PlayerBar } from "./PlayerBar";
+import { PlaylistsView } from "./PlaylistsView";
+import { QueueView } from "./QueueView";
+import { SearchView } from "./SearchView";
+import { useAuth } from "./useAuth";
+import { useListeningHistory } from "./useListeningHistory";
+import { useQueue } from "./useQueue";
+import { usePlaylists } from "./usePlaylists";
+import type { Track } from "./types";
 
-interface TrackSource {
-  provider_id: string;
-  source_ref: string;
-  is_local: boolean;
-  is_lossless: boolean;
-}
-
-interface Track {
-  id: string;
-  title: string;
-  duration_secs: number | null;
-  sources: TrackSource[];
-}
+type Tab = "search" | "discover" | "queue" | "playlists" | "admin";
 
 export default function App() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Track[]>([]);
-  const [nowPlaying, setNowPlaying] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const { token, me, checking, login, setup, register, logout } = useAuth();
+  const [tab, setTab] = useState<Tab>("discover");
+  const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
+  const [detail, setDetail] = useState<DetailTarget | null>(null);
+  const queueApi = useQueue(token);
+  const playlistApi = usePlaylists();
+  const history = useListeningHistory();
 
-  async function runSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-    const data = await res.json();
-    setResults(data.results ?? []);
-  }
+  // Every change of "current track" counts as a play, regardless of which
+  // view started it (search, discover, a playlist, radio...) — this is what
+  // backs the Discover page's "Keep listening" / "similar to" rows.
+  useEffect(() => {
+    if (queueApi.currentTrack) history.recordPlay(queueApi.currentTrack);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueApi.currentTrack?.id]);
 
-  function play(track: Track) {
-    const source = track.sources[0];
-    if (!source || !audioRef.current) return;
-    const url = `/api/stream?provider=${encodeURIComponent(source.provider_id)}&ref=${encodeURIComponent(source.source_ref)}`;
-    audioRef.current.src = url;
-    audioRef.current.play();
-    setNowPlaying(track.title);
+  if (checking) return null;
+  if (!token || !me) return <AuthView onLogin={login} onSetup={setup} onRegister={register} />;
+
+  async function startRadio(track: Track) {
+    const more = await fetchRadio(token!, track);
+    queueApi.playTracks([track, ...more]);
   }
 
   return (
-    <main>
-      <h1>Weave</h1>
-      <form onSubmit={runSearch}>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search your library and providers..."
+    <div className="app">
+      <header className="app-header">
+        <h1>Weave</h1>
+        <nav className="app-nav-desktop">
+          <NavTabs tab={tab} setTab={setTab} queueCount={queueApi.queue.length} isAdmin={me.is_admin} />
+        </nav>
+        <span className="app-user">
+          {me.username} <button onClick={logout}>Log out</button>
+        </span>
+      </header>
+
+      <main>
+        {tab === "search" && (
+          <SearchView
+            token={token}
+            onPlay={queueApi.playTrack}
+            onPlayAll={queueApi.playTracks}
+            onEnqueue={queueApi.enqueue}
+            onRadio={startRadio}
+            onOpenDetail={setDetail}
+            playlists={playlistApi.playlists}
+            onAddToPlaylist={playlistApi.addTrackToPlaylist}
+          />
+        )}
+        {tab === "discover" && (
+          <DiscoverView token={token} onPlay={queueApi.playTracks} playlists={playlistApi.playlists} />
+        )}
+        {tab === "queue" && (
+          <QueueView
+            queue={queueApi.queue}
+            currentTrackId={queueApi.currentTrack?.id ?? null}
+            onPlay={queueApi.playTrack}
+            onRemove={queueApi.removeFromQueue}
+            onMove={queueApi.moveInQueue}
+          />
+        )}
+        {tab === "playlists" && (
+          <PlaylistsView
+            playlists={playlistApi.playlists}
+            onCreate={playlistApi.createPlaylist}
+            onDelete={playlistApi.deletePlaylist}
+            onRemoveTrack={playlistApi.removeTrackFromPlaylist}
+            onPlay={queueApi.playTracks}
+          />
+        )}
+        {tab === "admin" && me.is_admin && <AdminView token={token} selfId={me.id} />}
+      </main>
+
+      <PlayerBar queueApi={queueApi} onExpand={() => setNowPlayingOpen(true)} />
+
+      <nav className="app-nav-mobile">
+        <NavTabs tab={tab} setTab={setTab} queueCount={queueApi.queue.length} isAdmin={me.is_admin} />
+      </nav>
+
+      {nowPlayingOpen && (
+        <NowPlayingView
+          queueApi={queueApi}
+          onClose={() => setNowPlayingOpen(false)}
+          onOpenQueue={() => {
+            setTab("queue");
+            setNowPlayingOpen(false);
+          }}
+          onRadio={(track) => {
+            startRadio(track);
+            setNowPlayingOpen(false);
+          }}
+          onOpenDetail={(target) => {
+            setDetail(target);
+            setNowPlayingOpen(false);
+          }}
         />
-        <button type="submit">Search</button>
-      </form>
-      <ul>
-        {results.map((track) => {
-          const source = track.sources[0];
-          return (
-            <li key={track.id}>
-              <button onClick={() => play(track)}>▶</button>{" "}
-              {track.title}{" "}
-              {source && (
-                <span className="tag">{source.is_local ? "local" : "streamed"}</span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {nowPlaying && <p>Now playing: {nowPlaying}</p>}
-      <audio ref={audioRef} controls />
-    </main>
+      )}
+
+      {detail && (
+        <DetailView
+          target={detail}
+          token={token}
+          onClose={() => setDetail(null)}
+          onPlay={queueApi.playTracks}
+          onRadio={(track) => {
+            startRadio(track);
+            setDetail(null);
+          }}
+          onOpenDetail={setDetail}
+        />
+      )}
+    </div>
   );
 }
