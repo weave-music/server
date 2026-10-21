@@ -1,0 +1,7 @@
+/server/target/
+/clients/web/node_modules/
+/clients/web/dist/
+/clients/android/.gradle/
+/clients/android/build/
+.env
+*.log

@@ -1,0 +1,25 @@
+services:
+  weave-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "4545:4533"
+    volumes:
+      - /mnt/tank/media/music:/music:ro
+      - weave-config:/config
+    restart: unless-stopped
+
+  weave-web:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - /mnt/tank/files/projects/weave/clients/web:/app
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - weave-server
+
+volumes:
+  weave-config:

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/weave-core",
+    "crates/weave-server",
+    "crates/weave-provider-local",
+    "crates/weave-provider-ytdlp",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
