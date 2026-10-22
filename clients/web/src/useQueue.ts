@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { streamUrl } from "./api";
+import { fetchPlaybackState, playbackWsUrl, streamUrl, updatePlaybackState } from "./api";
+import { getDeviceId } from "./deviceId";
 import type { Track } from "./types";
 
 export type RepeatMode = "off" | "all" | "one";
+
+interface PlaybackBroadcast {
+  device_id: string;
+  track: Track;
+  position_secs: number;
+  is_playing: boolean;
+}
 
 // Tracking "current" by track id rather than array index means reordering
 // or removing other queue entries never has to special-case shifting an
@@ -39,6 +47,138 @@ export function useQueue(token: string | null) {
 
   const currentIndex = queue.findIndex((t) => t.id === currentTrackId);
   const currentTrack = currentIndex >= 0 ? queue[currentIndex] : null;
+
+  // --- Cross-device playback sync -----------------------------------------
+  // Stable per-browser-profile id so a device can tell "an update I just
+  // sent" apart from "another device changed something" in its own WS feed.
+  const deviceIdRef = useRef(getDeviceId());
+  // Mirrors for use inside callbacks/listeners that read "latest" without
+  // wanting to re-subscribe every render (same pattern as shuffleRef above).
+  const currentTrackRef = useRef<Track | null>(currentTrack);
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+  // Set right before a track change that should only update what's
+  // *displayed* (hydrating from the server, or mirroring another device
+  // that's idle) rather than actually starting playback here.
+  const autoplayNextLoadRef = useRef(true);
+  // Set right before this device pauses itself *because* another device
+  // just started playing — the resulting native "pause" event shouldn't be
+  // re-broadcast as this device's own state, or it'd stomp the row the other
+  // device just wrote with this device's stale track.
+  const suppressNextPushRef = useRef(false);
+  // A seek position to apply once the freshly-loaded track's metadata is
+  // ready (setting currentTime before that is unreliable across browsers).
+  const pendingSeekRef = useRef<number | null>(null);
+  const lastPushRef = useRef(0);
+  const hydratedRef = useRef(false);
+
+  const pushPlaybackState = useCallback(
+    (playing: boolean, opts?: { force?: boolean }) => {
+      if (suppressNextPushRef.current) {
+        suppressNextPushRef.current = false;
+        return;
+      }
+      if (!token || !audioElement || !currentTrackRef.current) return;
+      const now = Date.now();
+      if (!opts?.force && now - lastPushRef.current < 1000) return;
+      lastPushRef.current = now;
+      updatePlaybackState(token, deviceIdRef.current, currentTrackRef.current, audioElement.currentTime, playing);
+    },
+    [token, audioElement],
+  );
+
+  // Another device's update, received live over the WebSocket below.
+  const handleRemoteEvent = useCallback(
+    (event: PlaybackBroadcast) => {
+      if (event.device_id === deviceIdRef.current) return;
+      if (event.is_playing && audioElement && !audioElement.paused) {
+        suppressNextPushRef.current = true;
+        audioElement.pause();
+      }
+      // Don't interrupt local listening — only mirror the remote track here
+      // if this device isn't itself actively playing something.
+      if (isPlayingRef.current) return;
+
+      // Track identity from the server is a fresh random id every fetch, so
+      // compare by source instead — otherwise every ~5s heartbeat from the
+      // playing device would look like a "new" track and reload the <audio>
+      // element here for no reason.
+      const current = currentTrackRef.current;
+      const remoteSource = event.track.sources[0];
+      const currentSource = current?.sources[0];
+      const sameTrack =
+        currentSource &&
+        remoteSource &&
+        currentSource.provider_id === remoteSource.provider_id &&
+        currentSource.source_ref === remoteSource.source_ref;
+
+      if (sameTrack) {
+        if (audioElement) audioElement.currentTime = event.position_secs;
+        setCurrentTime(event.position_secs);
+        return;
+      }
+
+      autoplayNextLoadRef.current = false;
+      pendingSeekRef.current = event.position_secs;
+      setQueue([event.track]);
+      setCurrentTrackId(event.track.id);
+    },
+    [audioElement],
+  );
+  const handleRemoteEventRef = useRef(handleRemoteEvent);
+  useEffect(() => {
+    handleRemoteEventRef.current = handleRemoteEvent;
+  }, [handleRemoteEvent]);
+
+  // One-time hydration: pick up whatever was last playing anywhere on this
+  // account, paused, so opening the app elsewhere shows the same track/spot
+  // without surprise-autoplaying audio the user didn't ask this device for.
+  useEffect(() => {
+    if (!token || hydratedRef.current) return;
+    hydratedRef.current = true;
+    fetchPlaybackState(token).then((state) => {
+      if (!state || currentTrackRef.current) return;
+      autoplayNextLoadRef.current = false;
+      pendingSeekRef.current = state.position_secs;
+      setQueue([state.track]);
+      setCurrentTrackId(state.track.id);
+    });
+  }, [token]);
+
+  // Live feed of other devices' playback changes. Reconnects on drop since
+  // this is a long-lived background connection for as long as the app's open.
+  useEffect(() => {
+    if (!token) return;
+    let socket: WebSocket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+
+    function connect() {
+      socket = new WebSocket(playbackWsUrl(token!));
+      socket.onmessage = (ev) => {
+        try {
+          handleRemoteEventRef.current(JSON.parse(ev.data));
+        } catch {
+          // ignore malformed frames
+        }
+      };
+      socket.onclose = () => {
+        if (!stopped) retryTimer = setTimeout(connect, 3000);
+      };
+    }
+    connect();
+
+    return () => {
+      stopped = true;
+      clearTimeout(retryTimer);
+      socket?.close();
+    };
+  }, [token]);
 
   const playTrack = useCallback((track: Track) => {
     setQueue([track]);
@@ -148,18 +288,27 @@ export function useQueue(token: string | null) {
 
   const seek = useCallback(
     (seconds: number) => {
-      if (audioElement) audioElement.currentTime = seconds;
+      if (!audioElement) return;
+      audioElement.currentTime = seconds;
+      pushPlaybackState(isPlayingRef.current);
     },
-    [audioElement],
+    [audioElement, pushPlaybackState],
   );
 
-  // Load whatever track is now "current" into the <audio> element.
+  // Load whatever track is now "current" into the <audio> element. Normal
+  // local actions (play/skip/etc.) autoplay as before; a hydration or
+  // idle-device sync sets autoplayNextLoadRef false first to only update
+  // what's displayed without actually starting audio on this device.
   useEffect(() => {
     if (!audioElement || !currentTrack) return;
     const url = streamUrl(currentTrack, token);
     if (!url) return;
     audioElement.src = url;
-    audioElement.play().catch(() => {});
+    if (autoplayNextLoadRef.current) {
+      audioElement.play().catch(() => {});
+    } else {
+      autoplayNextLoadRef.current = true;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack?.id, token, audioElement]);
 
@@ -169,9 +318,22 @@ export function useQueue(token: string | null) {
   useEffect(() => {
     if (!audioElement) return;
     const onTime = () => setCurrentTime(audioElement.currentTime);
-    const onLoaded = () => setDuration(audioElement.duration || 0);
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
+    const onLoaded = () => {
+      setDuration(audioElement.duration || 0);
+      if (pendingSeekRef.current != null) {
+        audioElement.currentTime = pendingSeekRef.current;
+        setCurrentTime(pendingSeekRef.current);
+        pendingSeekRef.current = null;
+      }
+    };
+    const onPlay = () => {
+      setIsPlaying(true);
+      pushPlaybackState(true, { force: true });
+    };
+    const onPause = () => {
+      setIsPlaying(false);
+      pushPlaybackState(false, { force: true });
+    };
     audioElement.addEventListener("timeupdate", onTime);
     audioElement.addEventListener("loadedmetadata", onLoaded);
     audioElement.addEventListener("ended", handleEnded);
@@ -184,7 +346,15 @@ export function useQueue(token: string | null) {
       audioElement.removeEventListener("play", onPlay);
       audioElement.removeEventListener("pause", onPause);
     };
-  }, [audioElement, handleEnded]);
+  }, [audioElement, handleEnded, pushPlaybackState]);
+
+  // Keeps the server's position roughly fresh while playing, so a device
+  // opening mid-track doesn't hydrate several minutes behind.
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => pushPlaybackState(true), 5000);
+    return () => clearInterval(interval);
+  }, [isPlaying, pushPlaybackState]);
 
   return {
     audioRef: setAudioElement,

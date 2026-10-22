@@ -92,6 +92,42 @@ export async function fetchArtistReleases(
   return data.releases ?? [];
 }
 
+export interface PlaybackState {
+  track: Track;
+  position_secs: number;
+  is_playing: boolean;
+  device_id: string;
+}
+
+export async function fetchPlaybackState(token: string): Promise<PlaybackState | null> {
+  const res = await fetch("/api/playback", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok || res.status === 204) return null;
+  return res.json();
+}
+
+// Fire-and-forget: a dropped sync update isn't worth surfacing to the user,
+// the next heartbeat or play/pause will catch up.
+export function updatePlaybackState(
+  token: string,
+  deviceId: string,
+  track: Track,
+  positionSecs: number,
+  isPlaying: boolean,
+): void {
+  fetch("/api/playback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ device_id: deviceId, track, position_secs: positionSecs, is_playing: isPlaying }),
+  }).catch(() => {});
+}
+
+// Native WebSocket can't set an Authorization header, so auth travels as
+// ?token= here too (same reason streamUrl does it).
+export function playbackWsUrl(token: string): string {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${location.host}/api/playback/ws?token=${encodeURIComponent(token)}`;
+}
+
 export async function getSetupComplete(): Promise<boolean> {
   const res = await fetch("/api/auth/setup");
   if (!res.ok) return true; // fail closed — don't dangle the setup option if the check itself fails

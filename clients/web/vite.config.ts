@@ -6,7 +6,9 @@ export default defineConfig({
   server: {
     host: true,
     proxy: {
-      "/api": "http://weave-server:4533",
+      // ws: true so the /api/playback/ws WebSocket upgrade gets proxied too
+      // — the plain string form only forwards regular HTTP requests.
+      "/api": { target: "http://weave-server:4533", ws: true },
       "/rest": "http://weave-server:4533",
     },
   },

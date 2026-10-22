@@ -6,6 +6,7 @@ use std::sync::Arc;
 use auth::{create_session, hash_password, verify_password, AdminUser, AuthUser};
 use axum::{
     body::Body,
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{Path, Query, Request, State},
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
@@ -16,6 +17,7 @@ use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use tokio::sync::broadcast;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use uuid::Uuid;
@@ -28,6 +30,12 @@ struct AppState {
     providers: Vec<Arc<dyn MediaProvider>>,
     db: SqlitePool,
     cache_dir: PathBuf,
+    /// Fans out playback updates (track/position/play-state) to every other
+    /// device the same account has connected via `/api/playback/ws`, so
+    /// starting a song on one device can pause/sync it on the rest in real
+    /// time — a single process-wide channel filtered by user id per
+    /// connection, since a self-hosted install doesn't need per-user channels.
+    playback_tx: broadcast::Sender<PlaybackEvent>,
 }
 
 impl AppState {
@@ -55,7 +63,8 @@ async fn main() {
     let cache_dir = PathBuf::from(std::env::var("WEAVE_CACHE_PATH").unwrap_or_else(|_| "/config/cache".to_string()));
     std::fs::create_dir_all(&cache_dir).expect("failed to create cache directory");
 
-    let state = AppState { providers: vec![local_provider, ytdlp_provider], db, cache_dir };
+    let (playback_tx, _) = broadcast::channel(32);
+    let state = AppState { providers: vec![local_provider, ytdlp_provider], db, cache_dir, playback_tx };
 
     let app = Router::new()
         .route("/health", get(health))
@@ -75,6 +84,8 @@ async fn main() {
         .route("/api/album", get(album_tracks))
         .route("/api/likes", get(list_likes).post(like_track).delete(unlike_track))
         .route("/api/stream", get(stream))
+        .route("/api/playback", get(get_playback).post(update_playback))
+        .route("/api/playback/ws", get(playback_ws))
         .with_state(state);
 
     let addr = "0.0.0.0:4533";
@@ -695,5 +706,165 @@ async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
             Json(serde_json::json!({ "results": tracks })).into_response()
         }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not list likes").into_response(),
+    }
+}
+
+/// Broadcast over `/api/playback/ws` whenever any device updates playback
+/// state. `device_id` lets a receiving client tell "this is an update I just
+/// sent myself" apart from "another device changed something", which is what
+/// lets it decide whether to pause itself or sync its displayed track.
+#[derive(Clone, Serialize)]
+struct PlaybackEvent {
+    user_id: String,
+    device_id: String,
+    track: Track,
+    position_secs: f64,
+    is_playing: bool,
+}
+
+#[derive(Deserialize)]
+struct PlaybackUpdate {
+    device_id: String,
+    track: Track,
+    position_secs: f64,
+    is_playing: bool,
+}
+
+/// Cross-device playback sync (REQUIREMENTS: starting a track on one device
+/// should pause/sync the others). Devices POST here on every play/pause/seek
+/// and periodically while playing; the row is a single upsert per user (last
+/// writer wins) so `GET /api/playback` always has something to hydrate a
+/// freshly-opened device with, and every connected device also gets the
+/// update live via the broadcast channel.
+async fn update_playback(State(state): State<AppState>, user: AuthUser, Json(body): Json<PlaybackUpdate>) -> Response {
+    let Some(source) = body.track.sources.first() else {
+        return (StatusCode::BAD_REQUEST, "track has no source").into_response();
+    };
+
+    let result = sqlx::query(
+        "INSERT INTO playback_state \
+         (user_id, provider_id, source_ref, title, artist_name, album_name, artwork_url, duration_secs, position_secs, is_playing, device_id, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) \
+         ON CONFLICT (user_id) DO UPDATE SET \
+           provider_id = excluded.provider_id, source_ref = excluded.source_ref, title = excluded.title, \
+           artist_name = excluded.artist_name, album_name = excluded.album_name, artwork_url = excluded.artwork_url, \
+           duration_secs = excluded.duration_secs, position_secs = excluded.position_secs, \
+           is_playing = excluded.is_playing, device_id = excluded.device_id, updated_at = datetime('now')",
+    )
+    .bind(&user.id)
+    .bind(&source.provider_id)
+    .bind(&source.source_ref)
+    .bind(&body.track.title)
+    .bind(&body.track.artist_name)
+    .bind(&body.track.album_name)
+    .bind(&body.track.artwork_url)
+    .bind(body.track.duration_secs.map(|d| d as i64))
+    .bind(body.position_secs)
+    .bind(body.is_playing)
+    .bind(&body.device_id)
+    .execute(&state.db)
+    .await;
+
+    if result.is_err() {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "could not update playback state").into_response();
+    }
+
+    // Best-effort: no subscribers (nobody else has this account open) is a
+    // normal, non-error outcome, not something to report back to the caller.
+    let _ = state.playback_tx.send(PlaybackEvent {
+        user_id: user.id,
+        device_id: body.device_id,
+        track: body.track,
+        position_secs: body.position_secs,
+        is_playing: body.is_playing,
+    });
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(sqlx::FromRow)]
+struct PlaybackRow {
+    provider_id: String,
+    source_ref: String,
+    title: String,
+    artist_name: Option<String>,
+    album_name: Option<String>,
+    artwork_url: Option<String>,
+    duration_secs: Option<i64>,
+    position_secs: f64,
+    is_playing: bool,
+    device_id: String,
+}
+
+/// Hydrates a freshly-opened device with whatever was last playing anywhere
+/// on the account — 204 if the user has never played anything yet.
+async fn get_playback(State(state): State<AppState>, user: AuthUser) -> Response {
+    let row: Option<PlaybackRow> = sqlx::query_as(
+        "SELECT provider_id, source_ref, title, artist_name, album_name, artwork_url, duration_secs, \
+                position_secs, is_playing, device_id \
+         FROM playback_state WHERE user_id = ?",
+    )
+    .bind(&user.id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let Some(row) = row else {
+        return StatusCode::NO_CONTENT.into_response();
+    };
+
+    let track = Track {
+        id: Uuid::new_v4(),
+        title: row.title,
+        duration_secs: row.duration_secs.map(|d| d as u32),
+        track_number: None,
+        sources: vec![TrackSource {
+            is_local: row.provider_id == "local",
+            provider_id: row.provider_id,
+            source_ref: row.source_ref,
+            bitrate_kbps: None,
+            is_lossless: false,
+        }],
+        artwork_url: row.artwork_url,
+        artist_name: row.artist_name,
+        artist_ref: None,
+        album_name: row.album_name,
+        album_ref: None,
+    };
+
+    Json(serde_json::json!({
+        "track": track,
+        "position_secs": row.position_secs,
+        "is_playing": row.is_playing,
+        "device_id": row.device_id,
+    }))
+    .into_response()
+}
+
+/// Live push side of playback sync. Auth travels as `?token=` (same as
+/// `/api/stream`) since the browser WebSocket API can't set an Authorization
+/// header. Every event for this user's account gets forwarded, including
+/// ones this same connection's own device sent — the client filters those
+/// out itself by comparing `device_id`, so it can also use "my own echo" as
+/// confirmation a push round-tripped if that's ever useful.
+async fn playback_ws(State(state): State<AppState>, user: AuthUser, ws: WebSocketUpgrade) -> Response {
+    let rx = state.playback_tx.subscribe();
+    ws.on_upgrade(move |socket| handle_playback_ws(socket, rx, user.id))
+}
+
+async fn handle_playback_ws(mut socket: WebSocket, mut rx: broadcast::Receiver<PlaybackEvent>, user_id: String) {
+    loop {
+        let event = match rx.recv().await {
+            Ok(event) => event,
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => break,
+        };
+        if event.user_id != user_id {
+            continue;
+        }
+        let Ok(json) = serde_json::to_string(&event) else { continue };
+        if socket.send(Message::Text(json)).await.is_err() {
+            break;
+        }
     }
 }

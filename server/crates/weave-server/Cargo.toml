@@ -7,8 +7,8 @@ edition = "2021"
 weave-core = { path = "../weave-core" }
 weave-provider-local = { path = "../weave-provider-local" }
 weave-provider-ytdlp = { path = "../weave-provider-ytdlp" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "process"] }
-axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "process", "sync"] }
+axum = { version = "0.7", features = ["ws"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.5", features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
