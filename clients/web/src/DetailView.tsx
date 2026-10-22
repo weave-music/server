@@ -33,6 +33,8 @@ interface Props {
   playlists: Playlist[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
   onCreatePlaylist: (name: string, initialTracks?: Track[]) => void;
+  onOpenJam: () => void;
+  jamActive: boolean;
 }
 
 const ARTIST_PAGE_SIZE = 10;
@@ -69,6 +71,8 @@ export function DetailView({
   playlists,
   onAddToPlaylist,
   onCreatePlaylist,
+  onOpenJam,
+  jamActive,
 }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,6 +153,8 @@ export function DetailView({
           onRadio={onRadio}
           onAddToPlaylist={onAddToPlaylist}
           onOpenDetail={onOpenDetail}
+          onOpenJam={onOpenJam}
+          jamActive={jamActive}
         />
       </>
     );

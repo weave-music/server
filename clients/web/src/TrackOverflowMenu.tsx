@@ -12,6 +12,8 @@ interface Props {
   onRadio: (track: Track) => void;
   onAddToPlaylist: (playlistId: string, track: Track) => void;
   onOpenDetail: (target: DetailTarget) => void;
+  onOpenJam: () => void;
+  jamActive: boolean;
 }
 
 export function TrackOverflowMenu({
@@ -23,6 +25,8 @@ export function TrackOverflowMenu({
   onRadio,
   onAddToPlaylist,
   onOpenDetail,
+  onOpenJam,
+  jamActive,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [choosingPlaylist, setChoosingPlaylist] = useState(false);
@@ -93,6 +97,7 @@ export function TrackOverflowMenu({
                 <button role="menuitem" onClick={() => act(() => onEnqueue(track))}>Add to queue</button>
                 <button role="menuitem" onClick={() => act(() => onShare(track))}>Share</button>
                 <button role="menuitem" onClick={() => act(() => onRadio(track))}>Start radio</button>
+                <button role="menuitem" onClick={() => act(onOpenJam)}>{jamActive ? "Jam" : "Start a Jam"}</button>
                 <button role="menuitem" onClick={() => setChoosingPlaylist(true)}>Add to playlist</button>
                 {canViewArtist && (
                   <button

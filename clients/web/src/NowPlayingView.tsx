@@ -4,6 +4,7 @@ import { formatTime } from "./format";
 import {
   ChevronDownIcon,
   DiscIcon,
+  JamIcon,
   PauseIcon,
   PlayIcon,
   QueueIcon,
@@ -29,6 +30,9 @@ interface Props {
   onOpenDetail: (target: DetailTarget) => void;
   playlists: Playlist[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
+  onOpenJam: () => void;
+  jamActive: boolean;
+  jamMemberCount: number;
 }
 
 export function NowPlayingView({
@@ -40,6 +44,9 @@ export function NowPlayingView({
   onOpenDetail,
   playlists,
   onAddToPlaylist,
+  onOpenJam,
+  jamActive,
+  jamMemberCount,
 }: Props) {
   const {
     currentTrack,
@@ -77,8 +84,17 @@ export function NowPlayingView({
           onRadio={onRadio}
           onAddToPlaylist={onAddToPlaylist}
           onOpenDetail={onOpenDetail}
+          onOpenJam={onOpenJam}
+          jamActive={jamActive}
         />
       </div>
+
+      {jamActive && (
+        <button className="now-playing-jam-banner" onClick={onOpenJam}>
+          <JamIcon />
+          Jam active — {jamMemberCount} {jamMemberCount === 1 ? "person" : "people"}
+        </button>
+      )}
 
       <div className="now-playing-art">
         <Artwork url={currentTrack.artwork_url} size="lg" alt="" />

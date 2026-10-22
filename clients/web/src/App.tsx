@@ -133,6 +133,8 @@ export default function App() {
               onOpenDetail={setDetail}
               playlists={playlistApi.playlists}
               onAddToPlaylist={playlistApi.addTrackToPlaylist}
+              onOpenJam={() => setJamPanelOpen(true)}
+              jamActive={!!jamApi.jam}
             />
           )}
           {tab === "discover" && (
@@ -182,6 +184,9 @@ export default function App() {
             }}
             playlists={playlistApi.playlists}
             onAddToPlaylist={playlistApi.addTrackToPlaylist}
+            onOpenJam={() => setJamPanelOpen(true)}
+            jamActive={!!jamApi.jam}
+            jamMemberCount={jamApi.members.length}
           />
         )}
 
@@ -204,6 +209,8 @@ export default function App() {
             playlists={playlistApi.playlists}
             onAddToPlaylist={playlistApi.addTrackToPlaylist}
             onCreatePlaylist={playlistApi.createPlaylist}
+            onOpenJam={() => setJamPanelOpen(true)}
+            jamActive={!!jamApi.jam}
           />
         )}
 

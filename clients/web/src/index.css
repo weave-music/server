@@ -614,6 +614,29 @@ form label {
   width: 2.4em;
 }
 
+.now-playing-jam-banner {
+  max-width: 360px;
+  width: 100%;
+  margin: 0 auto 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: rgba(29, 185, 84, 0.15);
+  color: #1db954;
+  border: 1px solid rgba(29, 185, 84, 0.4);
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.now-playing-jam-banner svg {
+  width: 1.1em;
+  height: 1.1em;
+  margin: 0;
+}
+
 .now-playing-art {
   max-width: 360px;
   width: 100%;
