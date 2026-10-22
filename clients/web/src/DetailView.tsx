@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { fetchAlbumTracks, fetchArtistTracks, fetchRadio } from "./api";
+import { fetchAlbumTracks, fetchArtistReleases, fetchArtistTracks, fetchRadio } from "./api";
 import { Artwork } from "./Artwork";
 import { EntityCard } from "./EntityCard";
 import { ChevronLeftIcon, PlayIcon, RadioIcon, ShuffleIcon } from "./icons";
 import { TrackRow } from "./TrackRow";
-import type { Track } from "./types";
+import type { ReleaseSummary, Track } from "./types";
 
 export interface DetailTarget {
   type: "artist" | "album";
@@ -35,10 +35,12 @@ export function DetailView({ target, token, onClose, onPlay, onRadio, onOpenDeta
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [similarArtists, setSimilarArtists] = useState<Track[]>([]);
+  const [releases, setReleases] = useState<ReleaseSummary[]>([]);
 
   useEffect(() => {
     setLoading(true);
     setSimilarArtists([]);
+    setReleases([]);
     const fetcher = target.type === "artist" ? fetchArtistTracks : fetchAlbumTracks;
     fetcher(token, target.providerId, target.ref).then((t) => {
       setTracks(t);
@@ -59,7 +61,14 @@ export function DetailView({ target, token, onClose, onPlay, onRadio, onOpenDeta
         });
       }
     });
+
+    if (target.type === "artist") {
+      fetchArtistReleases(token, target.providerId, target.ref).then(setReleases);
+    }
   }, [target.type, target.providerId, target.ref, token]);
+
+  const albums = releases.filter((r) => !r.is_single);
+  const singles = releases.filter((r) => r.is_single);
 
   const emptyNote =
     !loading && tracks.length === 0 ? (
@@ -109,6 +118,48 @@ export function DetailView({ target, token, onClose, onPlay, onRadio, onOpenDeta
                 <TrackRow key={t.id} track={t} onPlay={() => onPlay(tracks, t.id)} />
               ))}
             </ul>
+          </section>
+        )}
+
+        {albums.length > 0 && (
+          <section className="home-row">
+            <div className="home-row-heading">
+              <h3>Albums</h3>
+            </div>
+            <div className="home-row-scroll">
+              {albums.map((r) => (
+                <EntityCard
+                  key={r.id}
+                  name={r.title}
+                  subtitle={r.year ?? undefined}
+                  artworkUrl={r.artwork_url}
+                  onClick={() =>
+                    onOpenDetail({ type: "album", providerId: target.providerId, ref: r.id, name: r.title })
+                  }
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {singles.length > 0 && (
+          <section className="home-row">
+            <div className="home-row-heading">
+              <h3>Singles &amp; EPs</h3>
+            </div>
+            <div className="home-row-scroll">
+              {singles.map((r) => (
+                <EntityCard
+                  key={r.id}
+                  name={r.title}
+                  subtitle={r.year ?? undefined}
+                  artworkUrl={r.artwork_url}
+                  onClick={() =>
+                    onOpenDetail({ type: "album", providerId: target.providerId, ref: r.id, name: r.title })
+                  }
+                />
+              ))}
+            </div>
           </section>
         )}
 

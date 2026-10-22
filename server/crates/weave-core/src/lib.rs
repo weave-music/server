@@ -5,4 +5,4 @@ mod provider;
 mod track;
 
 pub use provider::{MediaProvider, ProviderError, ProviderKind, SearchQuery};
-pub use track::{Track, TrackSource};
+pub use track::{ReleaseSummary, Track, TrackSource};

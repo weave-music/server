@@ -66,6 +66,7 @@ async fn main() {
         .route("/api/featured", get(featured))
         .route("/api/radio", get(radio))
         .route("/api/artist", get(artist_tracks))
+        .route("/api/artist/releases", get(artist_releases))
         .route("/api/album", get(album_tracks))
         .route("/api/stream", get(stream))
         .with_state(state);
@@ -389,8 +390,9 @@ struct ArtistAlbumParams {
     item_ref: String,
 }
 
-/// More tracks from one artist (see `MediaProvider::artist_tracks` — only
-/// the yt-dlp provider supports this today, via channel ids).
+/// More tracks from one artist (see `MediaProvider::artist_tracks` — the
+/// yt-dlp provider backs this with YouTube Music's real "top songs", with a
+/// channel-videos fallback; local files have no artist concept).
 async fn artist_tracks(
     State(state): State<AppState>,
     _user: AuthUser,
@@ -408,8 +410,8 @@ async fn artist_tracks(
     }
 }
 
-/// An album's tracks (see `MediaProvider::album_tracks` — only the local
-/// provider supports this today, via the containing folder).
+/// An album's tracks (see `MediaProvider::album_tracks` — yt-dlp via
+/// YouTube Music, local files via the containing folder).
 async fn album_tracks(
     State(state): State<AppState>,
     _user: AuthUser,
@@ -423,6 +425,25 @@ async fn album_tracks(
         Err(err) => {
             tracing::warn!(provider = params.provider, %err, "album_tracks failed");
             (StatusCode::NOT_FOUND, "could not load album").into_response()
+        }
+    }
+}
+
+/// An artist's Albums/Singles catalog (see `MediaProvider::artist_releases`
+/// — yt-dlp only, via YouTube Music; empty for providers without one).
+async fn artist_releases(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Query(params): Query<ArtistAlbumParams>,
+) -> Response {
+    let Some(provider) = state.provider(&params.provider) else {
+        return (StatusCode::NOT_FOUND, "unknown provider").into_response();
+    };
+    match provider.artist_releases(&params.item_ref).await {
+        Ok(releases) => Json(serde_json::json!({ "releases": releases })).into_response(),
+        Err(err) => {
+            tracing::warn!(provider = params.provider, %err, "artist_releases failed");
+            (StatusCode::NOT_FOUND, "could not load releases").into_response()
         }
     }
 }

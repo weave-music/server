@@ -1,4 +1,4 @@
-import type { Track } from "./types";
+import type { ReleaseSummary, Track } from "./types";
 
 // Streaming goes through <audio src>, which can't set an Authorization
 // header, so the token travels as a query param there instead (the same
@@ -51,6 +51,20 @@ export async function fetchAlbumTracks(token: string, providerId: string, albumR
   if (!res.ok) return [];
   const data = await res.json();
   return data.results ?? [];
+}
+
+export async function fetchArtistReleases(
+  token: string,
+  providerId: string,
+  artistRef: string,
+): Promise<ReleaseSummary[]> {
+  const params = new URLSearchParams({ provider: providerId, ref: artistRef });
+  const res = await fetch(`/api/artist/releases?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.releases ?? [];
 }
 
 export async function getSetupComplete(): Promise<boolean> {

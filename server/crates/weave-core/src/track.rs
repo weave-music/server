@@ -37,9 +37,21 @@ pub struct Track {
 
     pub album_name: Option<String>,
     /// Provider-specific id usable with `MediaProvider::album_tracks`.
-    /// `None` means no album browsing available (true for all yt-dlp
-    /// tracks today — YouTube has no reliable album concept outside of
-    /// YouTube Music's own artist pages, which yt-dlp doesn't expose
-    /// cleanly; see weave-provider-ytdlp).
+    /// `None` means no album browsing available for this particular track
+    /// (e.g. a yt-dlp search result — individual videos don't carry album
+    /// info without an extra per-track lookup, so that only gets filled in
+    /// via `MediaProvider::artist_releases` or when tracks are themselves
+    /// fetched through `album_tracks`).
     pub album_ref: Option<String>,
+}
+
+/// A lightweight album/single listing on an artist's page — not a full
+/// `Track` list, just enough to show a card and open it via `album_tracks`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseSummary {
+    pub id: String,
+    pub title: String,
+    pub artwork_url: Option<String>,
+    pub year: Option<String>,
+    pub is_single: bool,
 }
