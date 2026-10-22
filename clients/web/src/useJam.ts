@@ -57,17 +57,17 @@ export function useJamViewer(jamToken: string | null, jamId: string | null, onEv
           setState((s) => (s ? { ...s, members: [...s.members, { name: event.name, is_host: false }] } : s));
           break;
         case "QueueAdded":
-          setState((s) =>
-            s
-              ? {
-                  ...s,
-                  queue_log: [
-                    ...s.queue_log,
-                    { id: `${Date.now()}-${Math.random()}`, track: event.track, added_by_name: event.added_by_name },
-                  ],
-                }
-              : s,
-          );
+          // Dedupe by the server-assigned log id — a broadcast channel
+          // doesn't guarantee exactly-once delivery (e.g. a brief window
+          // with two live sockets open, such as React StrictMode's dev-mode
+          // double effect invocation), so the same add can arrive twice.
+          setState((s) => {
+            if (!s || s.queue_log.some((entry) => entry.id === event.id)) return s;
+            return {
+              ...s,
+              queue_log: [...s.queue_log, { id: event.id, track: event.track, added_by_name: event.added_by_name }],
+            };
+          });
           refreshRecommendations();
           break;
         case "PlaybackUpdated":
@@ -136,8 +136,16 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
     queueApiRef.current = queueApi;
   }, [queueApi]);
 
+  // Tracks which QueueAdded ids have already been enqueued into the real
+  // queue — same dedupe reasoning as useJamViewer's queue_log, but this one
+  // matters more: without it, duplicate delivery would double-add the
+  // track to actual playback, not just to a display list.
+  const enqueuedIdsRef = useRef<Set<string>>(new Set());
   const onJamEvent = useCallback((event: JamEvent) => {
-    if (event.type === "QueueAdded") queueApiRef.current.enqueue(event.track);
+    if (event.type !== "QueueAdded") return;
+    if (enqueuedIdsRef.current.has(event.id)) return;
+    enqueuedIdsRef.current.add(event.id);
+    queueApiRef.current.enqueue(event.track);
   }, []);
 
   const viewer = useJamViewer(jam?.token ?? null, jam?.jamId ?? null, onJamEvent);

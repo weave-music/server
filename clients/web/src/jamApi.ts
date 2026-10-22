@@ -27,7 +27,7 @@ export interface JamState {
 
 export type JamEvent =
   | { type: "MemberJoined"; jam_id: string; name: string }
-  | { type: "QueueAdded"; jam_id: string; track: Track; added_by_name: string }
+  | { type: "QueueAdded"; jam_id: string; id: string; track: Track; added_by_name: string }
   | { type: "PlaybackUpdated"; jam_id: string; live: JamLive }
   | { type: "Ended"; jam_id: string };
 

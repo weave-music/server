@@ -56,12 +56,17 @@ export function JamRoom({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Track[]>([]);
   const [searching, setSearching] = useState(false);
+  // Pops up automatically the moment a jam exists to join, and again
+  // whenever a new jam starts (joinUrl changing from null to a fresh code)
+  // — minimizing just hides the popup, the jam itself keeps running.
+  const [inviteMinimized, setInviteMinimized] = useState(false);
 
   useEffect(() => {
     if (!joinUrl) {
       setQrDataUrl(null);
       return;
     }
+    setInviteMinimized(false);
     QRCode.toDataURL(joinUrl, { margin: 1, width: 220 }).then(setQrDataUrl).catch(() => setQrDataUrl(null));
   }, [joinUrl]);
 
@@ -114,16 +119,31 @@ export function JamRoom({
       ) : (
         <>
           {isHost && joinUrl && (
-            <div className="jam-room-invite">
-              {qrDataUrl && <img className="jam-room-qr" src={qrDataUrl} alt="QR code to join this jam" />}
-              <div className="jam-room-code">{joinCode}</div>
-              <p className="jam-room-url">Scan to join, or go to {joinUrl}</p>
+            <div className="jam-room-invite-bar">
+              <button className="jam-room-invite-chip" onClick={() => setInviteMinimized(false)}>
+                Invite people · {joinCode}
+              </button>
               {onEndJam && (
                 <button className="jam-room-end" onClick={onEndJam}>
                   End Jam
                 </button>
               )}
             </div>
+          )}
+
+          {isHost && joinUrl && !inviteMinimized && (
+            <>
+              <div className="jam-invite-backdrop" onClick={() => setInviteMinimized(true)} />
+              <div className="jam-invite-popup" role="dialog" aria-label="Invite people to this jam">
+                <h3>Invite people to your Jam</h3>
+                {qrDataUrl && <img className="jam-room-qr" src={qrDataUrl} alt="QR code to join this jam" />}
+                <div className="jam-room-code">{joinCode}</div>
+                <p className="jam-room-url">Scan to join, or go to {joinUrl}</p>
+                <button className="jam-invite-minimize" onClick={() => setInviteMinimized(true)}>
+                  Minimize
+                </button>
+              </div>
+            </>
           )}
 
           <section className="jam-room-section">
@@ -143,39 +163,41 @@ export function JamRoom({
             )}
           </section>
 
-          <section className="jam-room-section">
-            <h3>Up Next</h3>
-            {(live?.upcoming ?? []).length === 0 ? (
-              <p className="jam-room-empty">Queue is empty — add a song below.</p>
-            ) : (
-              <ul className="track-list">
-                {live!.upcoming.map((track, i) =>
-                  trackRow(
-                    track,
-                    `${sourceKey(track)}-${i}`,
-                    <span className="jam-added-by">Added by {attributionFor(track)}</span>,
-                  ),
-                )}
-              </ul>
-            )}
-          </section>
-
-          {recommendations.length > 0 && (
+          <div className="jam-room-columns">
             <section className="jam-room-section">
-              <h3>Recommended</h3>
-              <ul className="track-list">
-                {recommendations.map((track) =>
-                  trackRow(
-                    track,
-                    track.id,
-                    <button onClick={() => onAddTrack(track)} title="Add to jam">
-                      + Add
-                    </button>,
-                  ),
-                )}
-              </ul>
+              <h3>Up Next</h3>
+              {(live?.upcoming ?? []).length === 0 ? (
+                <p className="jam-room-empty">Queue is empty — add a song below.</p>
+              ) : (
+                <ul className="track-list">
+                  {live!.upcoming.map((track, i) =>
+                    trackRow(
+                      track,
+                      `${sourceKey(track)}-${i}`,
+                      <span className="jam-added-by">Added by {attributionFor(track)}</span>,
+                    ),
+                  )}
+                </ul>
+              )}
             </section>
-          )}
+
+            {recommendations.length > 0 && (
+              <section className="jam-room-section">
+                <h3>Recommended</h3>
+                <ul className="track-list">
+                  {recommendations.map((track) =>
+                    trackRow(
+                      track,
+                      track.id,
+                      <button onClick={() => onAddTrack(track)} title="Add to jam">
+                        + Add
+                      </button>,
+                    ),
+                  )}
+                </ul>
+              </section>
+            )}
+          </div>
 
           <section className="jam-room-section">
             <h3>Add a song</h3>

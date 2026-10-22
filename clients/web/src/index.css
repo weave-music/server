@@ -1291,14 +1291,57 @@ form label {
   margin: 0;
 }
 
-.jam-room-invite {
-  max-width: 320px;
+.jam-room-invite-bar {
+  max-width: 480px;
   width: 100%;
   margin: 0 auto 1.5rem;
-  text-align: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.jam-room-invite-chip {
+  flex: 1;
   background: #1a1a1a;
-  border-radius: 12px;
-  padding: 1.25rem;
+  border-radius: 999px;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* Pops up automatically when a jam starts — "Minimize" just hides this,
+   the jam itself (and the invite-bar chip to reopen it) stays up. */
+.jam-invite-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.jam-invite-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 41;
+  width: min(320px, calc(100vw - 2rem));
+  background: #1a1a1a;
+  border-radius: 16px;
+  padding: 1.5rem;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.jam-invite-popup h3 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+}
+
+.jam-invite-minimize {
+  margin-top: 0.75rem;
+  width: 100%;
+  background: #333;
+  border-radius: 999px;
+  padding: 0.6rem 1.25rem;
 }
 
 .jam-room-qr {
@@ -1337,6 +1380,25 @@ form label {
 .jam-room-section h3 {
   margin: 0 0 0.5rem;
   font-size: 0.95rem;
+}
+
+/* Up Next + Recommended live in here — flex-wrap naturally puts them side
+   by side once there's room for both at once, and stacks them on narrow
+   screens without needing a separate breakpoint. */
+.jam-room-columns {
+  max-width: 980px;
+  width: 100%;
+  margin: 0 auto 1.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.jam-room-columns > .jam-room-section {
+  flex: 1 1 320px;
+  max-width: 460px;
+  margin: 0;
 }
 
 .jam-room-empty {

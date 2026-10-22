@@ -917,7 +917,7 @@ struct JamLive {
 #[serde(tag = "type")]
 enum JamEvent {
     MemberJoined { jam_id: String, name: String },
-    QueueAdded { jam_id: String, track: Track, added_by_name: String },
+    QueueAdded { jam_id: String, id: String, track: Track, added_by_name: String },
     PlaybackUpdated { jam_id: String, live: JamLive },
     Ended { jam_id: String },
 }
@@ -1109,6 +1109,7 @@ async fn add_jam_queue(
 
     let _ = state.jam_tx.send(JamEvent::QueueAdded {
         jam_id: jam_id.clone(),
+        id,
         track: body.track,
         added_by_name: member.name.clone(),
     });
