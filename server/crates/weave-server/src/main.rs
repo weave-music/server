@@ -1,5 +1,6 @@
 mod auth;
 
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
 use auth::{create_session, hash_password, verify_password, AdminUser, AuthUser};
@@ -26,6 +27,7 @@ use weave_provider_ytdlp::YtDlpProvider;
 struct AppState {
     providers: Vec<Arc<dyn MediaProvider>>,
     db: SqlitePool,
+    cache_dir: PathBuf,
 }
 
 impl AppState {
@@ -50,7 +52,10 @@ async fn main() {
         .unwrap_or_else(|e| panic!("failed to open database at {db_path}: {e}"));
     sqlx::migrate!().run(&db).await.expect("database migrations failed");
 
-    let state = AppState { providers: vec![local_provider, ytdlp_provider], db };
+    let cache_dir = PathBuf::from(std::env::var("WEAVE_CACHE_PATH").unwrap_or_else(|_| "/config/cache".to_string()));
+    std::fs::create_dir_all(&cache_dir).expect("failed to create cache directory");
+
+    let state = AppState { providers: vec![local_provider, ytdlp_provider], db, cache_dir };
 
     let app = Router::new()
         .route("/health", get(health))
@@ -456,16 +461,117 @@ struct StreamParams {
     source_ref: String,
 }
 
+/// Looks up a previously-downloaded copy of a track in the `cached_tracks`
+/// table. A hit here lets `stream` skip the provider entirely and serve the
+/// local file instead of streaming/redirecting.
+async fn cached_path(db: &SqlitePool, provider_id: &str, source_ref: &str) -> Option<String> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT file_path FROM cached_tracks WHERE provider_id = ? AND source_ref = ?",
+    )
+    .bind(provider_id)
+    .bind(source_ref)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// `source_ref`s are opaque provider identifiers (e.g. YouTube video ids)
+/// that are already filesystem-safe in practice, but we strip anything odd
+/// defensively since they end up directly in a path on disk.
+fn safe_cache_stem(provider_id: &str, source_ref: &str) -> String {
+    let safe_ref: String = source_ref
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    format!("{provider_id}_{safe_ref}")
+}
+
+/// Shells out to yt-dlp to pull down a liked track's audio so future plays
+/// can be served from disk instead of re-streaming from the provider. Fire-
+/// and-forget: runs on a spawned task kicked off from `like_track`, so a like
+/// always succeeds immediately even if the download is slow or fails.
+async fn download_track_in_background(
+    db: SqlitePool,
+    cache_dir: PathBuf,
+    provider_id: String,
+    source_ref: String,
+) {
+    // Local files are already on disk; only the ytdlp provider needs caching.
+    if provider_id != "ytdlp" {
+        return;
+    }
+    if cached_path(&db, &provider_id, &source_ref).await.is_some() {
+        return;
+    }
+
+    let stem = safe_cache_stem(&provider_id, &source_ref);
+    let output_template = cache_dir.join(format!("{stem}.%(ext)s"));
+    let dest = cache_dir.join(format!("{stem}.opus"));
+    let url = format!("https://www.youtube.com/watch?v={source_ref}");
+
+    let output = tokio::process::Command::new("yt-dlp")
+        .args([
+            "-f",
+            "bestaudio",
+            "--extract-audio",
+            "--audio-format",
+            "opus",
+            "--no-warnings",
+            "-o",
+            &output_template.to_string_lossy(),
+            &url,
+        ])
+        .output()
+        .await;
+
+    match output {
+        Ok(out) if out.status.success() && dest.exists() => {
+            let insert = sqlx::query(
+                "INSERT OR REPLACE INTO cached_tracks (provider_id, source_ref, file_path) VALUES (?, ?, ?)",
+            )
+            .bind(&provider_id)
+            .bind(&source_ref)
+            .bind(dest.to_string_lossy().as_ref())
+            .execute(&db)
+            .await;
+            if let Err(err) = insert {
+                tracing::warn!(provider_id, source_ref, %err, "failed to record cached track");
+            } else {
+                tracing::info!(provider_id, source_ref, "cached track downloaded");
+            }
+        }
+        Ok(out) => tracing::warn!(
+            provider_id,
+            source_ref,
+            stderr = %String::from_utf8_lossy(&out.stderr),
+            "background download failed"
+        ),
+        Err(err) => tracing::warn!(provider_id, source_ref, %err, "background download spawn failed"),
+    }
+}
+
 /// Resolves a track source through its owning provider, then either serves
 /// the file directly (local, with Range support for seeking) or redirects
 /// the player at a remote stream URL. This is the seam where downloaded and
 /// streamed audio become interchangeable to the client (REQUIREMENTS.md §7).
+/// A liked track that has finished downloading (see `download_track_in_background`)
+/// is served straight from the cache, bypassing the provider entirely.
 async fn stream(
     State(state): State<AppState>,
     _user: AuthUser,
     Query(params): Query<StreamParams>,
     req: Request,
 ) -> Response {
+    if let Some(cached) = cached_path(&state.db, &params.provider, &params.source_ref).await {
+        if FsPath::new(&cached).exists() {
+            return match ServeFile::new(cached).oneshot(req).await {
+                Ok(res) => res.map(Body::new).into_response(),
+                Err(err) => match err {},
+            };
+        }
+    }
+
     let Some(provider) = state.provider(&params.provider) else {
         return (StatusCode::NOT_FOUND, "unknown provider").into_response();
     };
@@ -510,7 +616,15 @@ async fn like_track(State(state): State<AppState>, user: AuthUser, Json(track): 
     .await;
 
     match result {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            tokio::spawn(download_track_in_background(
+                state.db.clone(),
+                state.cache_dir.clone(),
+                source.provider_id.clone(),
+                source.source_ref.clone(),
+            ));
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not like track").into_response(),
     }
 }

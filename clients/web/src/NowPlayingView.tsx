@@ -14,6 +14,7 @@ import {
   SkipForwardIcon,
   UserIcon,
 } from "./icons";
+import { LikeButton } from "./LikeButton";
 import type { Track } from "./types";
 import type { useQueue } from "./useQueue";
 
@@ -59,10 +60,13 @@ export function NowPlayingView({ queueApi, onClose, onOpenQueue, onRadio, onOpen
       </div>
 
       <div className="now-playing-info">
-        <div className="now-playing-title">{currentTrack.title}</div>
-        {currentTrack.artist_name && (
-          <div className="now-playing-subtitle">{currentTrack.artist_name}</div>
-        )}
+        <div className="now-playing-info-text">
+          <div className="now-playing-title">{currentTrack.title}</div>
+          {currentTrack.artist_name && (
+            <div className="now-playing-subtitle">{currentTrack.artist_name}</div>
+          )}
+        </div>
+        <LikeButton track={currentTrack} />
       </div>
 
       {(currentTrack.artist_ref || currentTrack.album_ref) && (

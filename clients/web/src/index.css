@@ -506,12 +506,32 @@ form label {
   max-width: 360px;
   width: 100%;
   margin: 1.5rem auto 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.now-playing-info-text {
+  flex: 1;
+  min-width: 0;
   text-align: center;
+}
+
+.now-playing-info .like-button {
+  flex-shrink: 0;
+}
+
+.now-playing-info .like-button svg {
+  width: 22px;
+  height: 22px;
 }
 
 .now-playing-title {
   font-size: 1.3rem;
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .now-playing-subtitle {
