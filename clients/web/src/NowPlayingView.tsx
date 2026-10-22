@@ -1,4 +1,3 @@
-import { AddToPlaylistMenu } from "./AddToPlaylistMenu";
 import { Artwork } from "./Artwork";
 import type { DetailTarget } from "./DetailView";
 import { formatTime } from "./format";
@@ -8,14 +7,15 @@ import {
   PauseIcon,
   PlayIcon,
   QueueIcon,
-  RadioIcon,
   RepeatIcon,
+  ShareIcon,
   ShuffleIcon,
   SkipBackIcon,
   SkipForwardIcon,
   UserIcon,
 } from "./icons";
 import { LikeButton } from "./LikeButton";
+import { TrackOverflowMenu } from "./TrackOverflowMenu";
 import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
 import type { useQueue } from "./useQueue";
@@ -25,10 +25,10 @@ interface Props {
   onClose: () => void;
   onOpenQueue: () => void;
   onRadio: (track: Track) => void;
+  onShare: (track: Track) => void | Promise<void>;
   onOpenDetail: (target: DetailTarget) => void;
   playlists: Playlist[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
-  onCreatePlaylist: (name: string, track?: Track) => void;
 }
 
 export function NowPlayingView({
@@ -36,10 +36,10 @@ export function NowPlayingView({
   onClose,
   onOpenQueue,
   onRadio,
+  onShare,
   onOpenDetail,
   playlists,
   onAddToPlaylist,
-  onCreatePlaylist,
 }: Props) {
   const {
     currentTrack,
@@ -58,6 +58,8 @@ export function NowPlayingView({
 
   if (!currentTrack) return null;
   const providerId = currentTrack.sources[0]?.provider_id;
+  const artistUrl = `https://music.youtube.com/search?q=${encodeURIComponent(currentTrack.artist_name ?? currentTrack.title)}`;
+  const albumUrl = `https://music.youtube.com/search?q=${encodeURIComponent([currentTrack.album_name ?? currentTrack.title, currentTrack.artist_name].filter(Boolean).join(" "))}`;
 
   return (
     <div className="now-playing">
@@ -66,7 +68,16 @@ export function NowPlayingView({
           <ChevronDownIcon />
         </button>
         <span>Now Playing</span>
-        <span className="now-playing-spacer" />
+        <TrackOverflowMenu
+          track={currentTrack}
+          playlists={playlists}
+          onPlayNext={queueApi.enqueueNext}
+          onEnqueue={queueApi.enqueue}
+          onShare={onShare}
+          onRadio={onRadio}
+          onAddToPlaylist={onAddToPlaylist}
+          onOpenDetail={onOpenDetail}
+        />
       </div>
 
       <div className="now-playing-art">
@@ -83,38 +94,26 @@ export function NowPlayingView({
         <LikeButton track={currentTrack} />
       </div>
 
-      {(currentTrack.artist_ref || currentTrack.album_ref) && (
-        <div className="now-playing-goto">
-          {currentTrack.artist_ref && providerId && (
+      <div className="now-playing-goto">
+          {providerId && (
             <button
-              onClick={() =>
-                onOpenDetail({
-                  type: "artist",
-                  providerId,
-                  ref: currentTrack.artist_ref!,
-                  name: currentTrack.artist_name ?? "Artist",
-                })
-              }
+              onClick={() => currentTrack.artist_ref
+                ? onOpenDetail({ type: "artist", providerId, ref: currentTrack.artist_ref, name: currentTrack.artist_name ?? "Artist" })
+                : window.open(artistUrl, "_blank", "noopener,noreferrer")}
             >
               <UserIcon /> Go to artist
             </button>
           )}
-          {currentTrack.album_ref && providerId && (
+          {providerId && (
             <button
-              onClick={() =>
-                onOpenDetail({
-                  type: "album",
-                  providerId,
-                  ref: currentTrack.album_ref!,
-                  name: currentTrack.album_name ?? "Album",
-                })
-              }
+              onClick={() => currentTrack.album_ref
+                ? onOpenDetail({ type: "album", providerId, ref: currentTrack.album_ref, name: currentTrack.album_name ?? "Album" })
+                : window.open(albumUrl, "_blank", "noopener,noreferrer")}
             >
               <DiscIcon /> Go to album
             </button>
           )}
         </div>
-      )}
 
       <div className="now-playing-seek">
         <input
@@ -153,15 +152,9 @@ export function NowPlayingView({
         <button onClick={onOpenQueue}>
           <QueueIcon /> Queue
         </button>
-        <button onClick={() => onRadio(currentTrack)}>
-          <RadioIcon /> Radio
+        <button onClick={() => onShare(currentTrack)}>
+          <ShareIcon /> Share
         </button>
-        <AddToPlaylistMenu
-          track={currentTrack}
-          playlists={playlists}
-          onAddToPlaylist={onAddToPlaylist}
-          onCreatePlaylist={onCreatePlaylist}
-        />
       </div>
     </div>
   );

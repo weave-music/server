@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { Track } from "./types";
 
 const STORAGE_KEY = "weave.history.v1";
@@ -23,12 +23,14 @@ function load(): HistoryEntry[] {
 // with an artist_name (currently: yt-dlp tracks) can seed a "similar
 // artist" row — local files have no artist metadata yet.
 export function useListeningHistory() {
+  const [version, setVersion] = useState(0);
   const recordPlay = useCallback((track: Track) => {
     const entries = load().filter(
       (e) => !(e.track.sources[0]?.source_ref === track.sources[0]?.source_ref),
     );
     entries.unshift({ track, playedAt: Date.now() });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
+    setVersion((v) => v + 1);
   }, []);
 
   const getRecentTracks = useCallback((limit: number): Track[] => {
@@ -50,5 +52,5 @@ export function useListeningHistory() {
     return result;
   }, []);
 
-  return { recordPlay, getRecentTracks, getRecentArtists };
+  return { recordPlay, getRecentTracks, getRecentArtists, version };
 }

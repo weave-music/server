@@ -197,6 +197,20 @@ export function useQueue(token: string | null) {
     setCurrentTrackId((id) => id ?? track.id);
   }, []);
 
+  // Put a track directly after the one playing now. If nothing is playing,
+  // this has the same useful behaviour as adding the first item to a queue.
+  const enqueueNext = useCallback(
+    (track: Track) => {
+      setQueue((q) => {
+        const currentIndex = q.findIndex((item) => item.id === currentTrackId);
+        if (currentIndex < 0) return [...q, track];
+        return [...q.slice(0, currentIndex + 1), track, ...q.slice(currentIndex + 1)];
+      });
+      setCurrentTrackId((id) => id ?? track.id);
+    },
+    [currentTrackId],
+  );
+
   const removeFromQueue = useCallback(
     (id: string) => {
       setQueue((q) => {
@@ -368,6 +382,7 @@ export function useQueue(token: string | null) {
     playTrack,
     playTracks,
     enqueue,
+    enqueueNext,
     removeFromQueue,
     moveInQueue,
     next,

@@ -3,6 +3,7 @@ import { fetchFeatured, fetchRadio, searchTracks } from "./api";
 import { Artwork } from "./Artwork";
 import { DiscIcon } from "./icons";
 import { Row } from "./Row";
+import { EntityCard } from "./EntityCard";
 import { useListeningHistory } from "./useListeningHistory";
 import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
@@ -21,18 +22,21 @@ interface Props {
   token: string;
   onPlay: (tracks: Track[], startId?: string) => void;
   playlists: Playlist[];
+  historyVersion: number;
+  onOpenDetail?: (target: { type: "artist"; providerId: string; ref: string; name: string }) => void;
 }
 
-export function DiscoverView({ token, onPlay, playlists }: Props) {
+export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenDetail }: Props) {
   const history = useListeningHistory();
   const [rows, setRows] = useState<RowState[]>([]);
   const recentlyPlayed = history.getRecentTracks(10);
+  const recentArtists = history.getRecentArtists(6);
 
   useEffect(() => {
-    const recentArtists = history.getRecentArtists(2);
+    const seedArtists = history.getRecentArtists(2);
     const initial: RowState[] = [
       { id: "recap", title: "Recap", tracks: [], loading: true },
-      ...recentArtists.map((r, i) => ({
+      ...seedArtists.map((r, i) => ({
         id: `similar-${i}`,
         title: r.artist,
         subtitle: "Similar to",
@@ -47,14 +51,14 @@ export function DiscoverView({ token, onPlay, playlists }: Props) {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, tracks, loading: false } : r)));
 
     fetchFeatured(token).then((tracks) => updateRow("recap", tracks));
-    recentArtists.forEach((r, i) => {
+    seedArtists.forEach((r, i) => {
       fetchRadio(token, r.track).then((tracks) => updateRow(`similar-${i}`, tracks));
     });
     GENRES.forEach((g) => {
       searchTracks(g, token).then((tracks) => updateRow(`genre-${g}`, tracks));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, historyVersion]);
 
   return (
     <div className="home-feed">
@@ -69,6 +73,31 @@ export function DiscoverView({ token, onPlay, playlists }: Props) {
 
       {recentlyPlayed.length > 0 && (
         <Row title="Keep listening" tracks={recentlyPlayed} onPlay={onPlay} />
+      )}
+
+      {onOpenDetail && recentArtists.length > 0 && (
+        <section className="home-row">
+          <div className="home-row-heading">
+            <h3>Your artists</h3>
+            <span className="home-row-subtitle">Based on what you play</span>
+          </div>
+          <div className="home-row-scroll">
+            {recentArtists.map(({ artist, track }) => track.artist_ref && track.sources[0] && (
+              <EntityCard
+                key={`${track.sources[0].provider_id}:${track.artist_ref}`}
+                name={artist}
+                artworkUrl={track.artwork_url}
+                round
+                onClick={() => onOpenDetail({
+                  type: "artist",
+                  providerId: track.sources[0]!.provider_id,
+                  ref: track.artist_ref!,
+                  name: artist,
+                })}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       {rows.slice(1).map((row) => (

@@ -28,8 +28,8 @@ export function usePlaylists() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(playlists));
   }, [playlists]);
 
-  const createPlaylist = useCallback((name: string, track?: Track) => {
-    setPlaylists((p) => [...p, { id: randomId(), name, tracks: track ? [track] : [] }]);
+  const createPlaylist = useCallback((name: string, initialTracks: Track[] = []) => {
+    setPlaylists((p) => [...p, { id: randomId(), name, tracks: initialTracks }]);
   }, []);
 
   const deletePlaylist = useCallback((id: string) => {

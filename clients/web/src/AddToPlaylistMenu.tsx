@@ -7,7 +7,7 @@ interface Props {
   track: Track;
   playlists: Playlist[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
-  onCreatePlaylist: (name: string, track?: Track) => void;
+  onCreatePlaylist: (name: string, initialTracks?: Track[]) => void;
 }
 
 export function AddToPlaylistMenu({ track, playlists, onAddToPlaylist, onCreatePlaylist }: Props) {
@@ -17,7 +17,7 @@ export function AddToPlaylistMenu({ track, playlists, onAddToPlaylist, onCreateP
   function createAndAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
-    onCreatePlaylist(newName.trim(), track);
+    onCreatePlaylist(newName.trim(), [track]);
     setNewName("");
     setOpen(false);
   }
