@@ -7,7 +7,7 @@ import { useListeningHistory } from "./useListeningHistory";
 import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
 
-const GENRES = ["Lofi hip hop", "Indie rock", "Synthwave", "Jazz", "Electronic"];
+const GENRES = ["Pop", "Rock", "Hip Hop", "Country", "R&B", "Electronic", "Jazz", "Punk", "Metal", "Folk"];
 
 interface RowState {
   id: string;

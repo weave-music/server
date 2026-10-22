@@ -3,8 +3,10 @@
 
 yt-dlp's generic page scraping can't see YouTube Music's actual artist/album
 catalog (no reliable Albums/Singles structure — confirmed across four
-extraction approaches). This talks to the same internal API the YouTube
-Music web client itself uses, via ytmusicapi.
+extraction approaches), and generic YouTube video search surfaces mixes,
+livestreams and compilations rather than individual songs. This talks to the
+same internal API the YouTube Music web client itself uses, via ytmusicapi,
+for both.
 """
 import json
 import sys
@@ -24,22 +26,34 @@ def artist_name_and_ref(artists):
     return artists[0].get("name"), artists[0].get("id")
 
 
+def song_entry(r):
+    """Normalizes a ytmusicapi "song" dict (from search or get_artist) into
+    the shape weave-provider-ytdlp expects."""
+    name, ref = artist_name_and_ref(r.get("artists"))
+    album = r.get("album") or {}
+    return {
+        "video_id": r.get("videoId"),
+        "title": r.get("title"),
+        "artist_name": name,
+        "artist_ref": ref,
+        "album_name": album.get("name"),
+        "album_ref": album.get("id"),
+        "duration_secs": r.get("duration_seconds"),
+        "artwork_url": best_thumbnail(r.get("thumbnails")),
+    }
+
+
+def cmd_songs(query, limit):
+    yt = YTMusic()
+    results = yt.search(query, filter="songs", limit=int(limit))
+    print(json.dumps({"songs": [song_entry(r) for r in results]}))
+
+
 def cmd_artist(channel_id):
     yt = YTMusic()
     artist = yt.get_artist(channel_id)
 
-    songs = []
-    for s in (artist.get("songs") or {}).get("results", []):
-        name, ref = artist_name_and_ref(s.get("artists"))
-        songs.append(
-            {
-                "video_id": s.get("videoId"),
-                "title": s.get("title"),
-                "artist_name": name,
-                "artist_ref": ref,
-                "artwork_url": best_thumbnail(s.get("thumbnails")),
-            }
-        )
+    songs = [song_entry(s) for s in (artist.get("songs") or {}).get("results", [])]
 
     def releases(key, is_single):
         out = []
@@ -83,11 +97,13 @@ def cmd_album(browse_id):
 
 def main():
     if len(sys.argv) < 3:
-        print(json.dumps({"error": "usage: ytmusic_bridge.py <artist|album> <id>"}), file=sys.stderr)
+        print(json.dumps({"error": "usage: ytmusic_bridge.py <songs|artist|album> <query|id> [limit]"}), file=sys.stderr)
         sys.exit(1)
     command, arg = sys.argv[1], sys.argv[2]
     try:
-        if command == "artist":
+        if command == "songs":
+            cmd_songs(arg, sys.argv[3] if len(sys.argv) > 3 else 25)
+        elif command == "artist":
             cmd_artist(arg)
         elif command == "album":
             cmd_album(arg)

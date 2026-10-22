@@ -1,11 +1,12 @@
 //! Streaming provider backed by the `yt-dlp` CLI, plus `ytmusic_bridge.py`
-//! (a thin wrapper around `ytmusicapi`) for the things yt-dlp's generic page
-//! scraping can't see: an artist's real "top songs" ranking and their actual
-//! Albums/Singles catalog, via YouTube Music's own internal API. Deliberately
-//! shells out to both rather than reimplementing extraction — yt-dlp's
-//! extractors are maintained upstream, and ytmusicapi already speaks the
-//! internal protocol correctly. Requires `yt-dlp` and `ytmusic_bridge.py` on
-//! PATH (see docker/Dockerfile).
+//! (a thin wrapper around `ytmusicapi`) for the things yt-dlp's generic page/
+//! video search can't do well: real song search (not mixes/livestreams/
+//! compilations), an artist's real "top songs" ranking, and their actual
+//! Albums/Singles catalog — all via YouTube Music's own internal API.
+//! Deliberately shells out to both rather than reimplementing extraction —
+//! yt-dlp's extractors are maintained upstream, and ytmusicapi already
+//! speaks the internal protocol correctly. Requires `yt-dlp` and
+//! `ytmusic_bridge.py` on PATH (see docker/Dockerfile).
 
 use async_trait::async_trait;
 use rand::seq::SliceRandom;
@@ -61,13 +62,32 @@ impl YtDlpProvider {
             artwork_url: Some(artwork_url),
             artist_name,
             artist_ref: entry.channel_id,
-            // Plain search results don't carry album info — an individual
-            // video doesn't know which (if any) YT Music release it belongs
-            // to without an extra per-track lookup, which isn't worth doing
-            // for a whole page of search results. Real album data is
-            // available via artist_releases()/album_tracks() instead.
             album_name: None,
             album_ref: None,
+        }
+    }
+
+    /// Converts a normalized `ytmusic_bridge.py` song entry into a `Track`.
+    fn track_from_bridge_song(&self, video_id: String, s: BridgeSong) -> Track {
+        let artwork_url =
+            s.artwork_url.unwrap_or_else(|| format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"));
+        Track {
+            id: Uuid::new_v4(),
+            title: s.title,
+            duration_secs: s.duration_secs.map(|d| d as u32),
+            track_number: None,
+            sources: vec![TrackSource {
+                provider_id: self.id.clone(),
+                source_ref: video_id,
+                bitrate_kbps: None,
+                is_lossless: false,
+                is_local: false,
+            }],
+            artwork_url: Some(artwork_url),
+            artist_name: s.artist_name,
+            artist_ref: s.artist_ref,
+            album_name: s.album_name,
+            album_ref: s.album_ref,
         }
     }
 
@@ -102,10 +122,19 @@ impl YtDlpProvider {
             .collect())
     }
 
-    /// Runs `ytmusic_bridge.py <command> <arg>` and parses its JSON stdout.
-    async fn run_bridge<T: serde::de::DeserializeOwned>(&self, command: &str, arg: &str) -> Result<T, ProviderError> {
+    /// Generic YouTube video search — mixes, livestreams, and compilations
+    /// included. Only used as a fallback when YT Music's own song search
+    /// (see `search()`) errors out or comes back empty for a given query.
+    async fn video_search(&self, query: &SearchQuery) -> Result<Vec<Track>, ProviderError> {
+        let search_spec = format!("ytsearch{}:{}", query.limit.max(1), query.text);
+        let entries = self.flat_playlist(&search_spec, query.limit).await?;
+        Ok(entries.into_iter().map(|e| self.track_from_entry(e)).collect())
+    }
+
+    /// Runs `ytmusic_bridge.py <args...>` and parses its JSON stdout.
+    async fn run_bridge<T: serde::de::DeserializeOwned>(&self, args: &[&str]) -> Result<T, ProviderError> {
         let output = Command::new("ytmusic_bridge.py")
-            .args([command, arg])
+            .args(args)
             .output()
             .await
             .map_err(|e| ProviderError::Unavailable(e.to_string()))?;
@@ -157,7 +186,15 @@ struct BridgeSong {
     title: String,
     artist_name: Option<String>,
     artist_ref: Option<String>,
+    album_name: Option<String>,
+    album_ref: Option<String>,
+    duration_secs: Option<f64>,
     artwork_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct BridgeSongsResponse {
+    songs: Vec<BridgeSong>,
 }
 
 #[derive(Deserialize)]
@@ -202,12 +239,25 @@ impl MediaProvider for YtDlpProvider {
         ProviderKind::Streaming
     }
 
+    /// YouTube Music's real song search first — actual named songs by real
+    /// artists, not the mixes/livestreams/hour-long compilations generic
+    /// YouTube video search tends to surface for genre-style queries. Falls
+    /// back to plain video search if YT Music errors out or has nothing.
     async fn search(&self, query: &SearchQuery) -> Result<Vec<Track>, ProviderError> {
-        // --flat-playlist skips per-video metadata extraction so search stays
-        // fast; full extraction only happens in resolve(), at play time.
-        let search_spec = format!("ytsearch{}:{}", query.limit.max(1), query.text);
-        let entries = self.flat_playlist(&search_spec, query.limit).await?;
-        Ok(entries.into_iter().map(|e| self.track_from_entry(e)).collect())
+        let limit_str = query.limit.max(1).to_string();
+        if let Ok(data) =
+            self.run_bridge::<BridgeSongsResponse>(&["songs", &query.text, &limit_str]).await
+        {
+            if !data.songs.is_empty() {
+                return Ok(data
+                    .songs
+                    .into_iter()
+                    .filter_map(|s| s.video_id.clone().map(|id| (id, s)))
+                    .map(|(video_id, s)| self.track_from_bridge_song(video_id, s))
+                    .collect());
+            }
+        }
+        self.video_search(query).await
     }
 
     async fn resolve(&self, source_ref: &str) -> Result<String, ProviderError> {
@@ -254,31 +304,17 @@ impl MediaProvider for YtDlpProvider {
     /// to their channel's raw video uploads if they have no YT Music profile
     /// (e.g. a non-musical channel).
     async fn artist_tracks(&self, artist_ref: &str, limit: usize) -> Result<Vec<Track>, ProviderError> {
-        match self.run_bridge::<BridgeArtistResponse>("artist", artist_ref).await {
+        match self.run_bridge::<BridgeArtistResponse>(&["artist", artist_ref]).await {
             Ok(data) => Ok(data
                 .songs
                 .into_iter()
                 .filter_map(|s| s.video_id.clone().map(|id| (id, s)))
                 .take(limit)
-                .map(|(video_id, s)| Track {
-                    id: Uuid::new_v4(),
-                    title: s.title,
-                    duration_secs: None,
-                    track_number: None,
-                    sources: vec![TrackSource {
-                        provider_id: self.id.clone(),
-                        source_ref: video_id.clone(),
-                        bitrate_kbps: None,
-                        is_lossless: false,
-                        is_local: false,
-                    }],
-                    artwork_url: s
-                        .artwork_url
-                        .or_else(|| Some(format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"))),
-                    artist_name: s.artist_name,
-                    artist_ref: s.artist_ref.or_else(|| Some(artist_ref.to_string())),
-                    album_name: None,
-                    album_ref: None,
+                .map(|(video_id, mut s)| {
+                    if s.artist_ref.is_none() {
+                        s.artist_ref = Some(artist_ref.to_string());
+                    }
+                    self.track_from_bridge_song(video_id, s)
                 })
                 .collect()),
             Err(_) => self.artist_channel_videos(artist_ref, limit).await,
@@ -288,7 +324,7 @@ impl MediaProvider for YtDlpProvider {
     /// A real album/single tracklist via YouTube Music (`album_ref` is a
     /// YT Music browseId, as returned by `artist_releases`).
     async fn album_tracks(&self, album_ref: &str, limit: usize) -> Result<Vec<Track>, ProviderError> {
-        let data: BridgeAlbumResponse = self.run_bridge("album", album_ref).await?;
+        let data: BridgeAlbumResponse = self.run_bridge(&["album", album_ref]).await?;
         let album_name = data.title;
         Ok(data
             .tracks
@@ -318,7 +354,7 @@ impl MediaProvider for YtDlpProvider {
 
     /// An artist's real Albums/Singles catalog via YouTube Music.
     async fn artist_releases(&self, artist_ref: &str) -> Result<Vec<ReleaseSummary>, ProviderError> {
-        let data: BridgeArtistResponse = self.run_bridge("artist", artist_ref).await?;
+        let data: BridgeArtistResponse = self.run_bridge(&["artist", artist_ref]).await?;
         Ok(data
             .releases
             .into_iter()
