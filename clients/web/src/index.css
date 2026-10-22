@@ -211,6 +211,51 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.track-overflow {
+  position: relative;
+}
+
+.track-overflow-trigger {
+  min-width: 2.25rem;
+  padding: 0.35rem 0.45rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.track-overflow-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 30;
+  min-width: 190px;
+  padding: 0.35rem;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.track-overflow-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  background: none;
+  border: none;
+}
+
+.track-overflow-menu button:hover:not(:disabled),
+.track-overflow-menu button:focus-visible:not(:disabled) {
+  background: #2a2a2a;
+}
+
+.track-overflow-heading,
+.track-overflow-empty {
+  margin: 0.35rem 0.65rem;
+  color: #999;
+  font-size: 0.8rem;
+}
+
 .like-button {
   background: none;
   border: none;
@@ -295,10 +340,15 @@ button:disabled {
   cursor: default;
 }
 
+.player-bar .track-overflow {
+  z-index: 31;
+}
+
 .player-bar-controls {
   display: flex;
   gap: 0.5rem;
 }
+
 
 .player-bar-seek {
   display: flex;
@@ -315,6 +365,79 @@ button:disabled {
   margin-left: auto;
   color: #999;
   font-size: 0.9rem;
+}
+
+.search-panel {
+  position: relative;
+  max-width: 760px;
+}
+
+.search-form {
+  margin-bottom: 1rem;
+}
+
+.search-form input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.search-history {
+  position: absolute;
+  top: calc(100% - 0.75rem);
+  left: 0;
+  right: 0;
+  z-index: 25;
+  padding: 0.45rem;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.search-history-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  color: #999;
+  font-size: 0.8rem;
+}
+
+.search-history-heading button {
+  padding: 0.2rem 0.4rem;
+  background: none;
+  border: none;
+  color: #1db954;
+  font-size: 0.8rem;
+}
+
+.search-history > button {
+  display: block;
+  width: 100%;
+  padding: 0.55rem;
+  text-align: left;
+  background: none;
+  border: none;
+}
+
+.search-history > button:hover {
+  background: #2a2a2a;
+}
+
+.search-history > button:disabled {
+  opacity: 0.5;
+}
+
+.search-history-icon {
+  display: inline-block;
+  width: 1.4rem;
+  color: #999;
+}
+
+.search-history-meta {
+  float: right;
+  color: #777;
+  font-size: 0.8rem;
 }
 
 .auth-view {
@@ -838,6 +961,74 @@ form label {
   margin: 0.2rem 0 0.75rem;
 }
 
+.album-artist-link {
+  display: block;
+  margin: -0.45rem 0 0.65rem;
+  padding: 0;
+  color: #1db954;
+  background: none;
+  border: none;
+  font-weight: 600;
+}
+
+.album-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.7rem;
+  margin-bottom: 0.8rem;
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.album-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.album-actions > button,
+.album-playlist > button {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.album-playlist {
+  position: relative;
+}
+
+.album-playlist-menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 30;
+  min-width: 210px;
+  padding: 0.5rem;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.album-playlist-menu > button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+}
+
+.album-playlist-menu form {
+  margin: 0.5rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid #333;
+}
+
+.album-playlist-menu input {
+  min-width: 0;
+  width: 100%;
+}
+
 .detail-view-note {
   color: #999;
 }
@@ -860,7 +1051,22 @@ form label {
   margin: 1rem 0 0.25rem;
 }
 
-.artist-hero-stat {
+.artist-stats {
+  display: flex;
+  gap: 0.75rem;
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.detail-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.detail-pagination span {
   color: #999;
   font-size: 0.85rem;
 }
@@ -948,16 +1154,17 @@ form label {
   }
 
   .player-bar-track {
-    flex: 1 1 100%;
+    flex: 1 1 0;
+    min-width: 0;
     max-width: none;
-    text-align: center;
+    text-align: left;
     order: 1;
   }
 
   .player-bar-controls {
-    flex: 1 1 100%;
-    justify-content: center;
-    order: 2;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    order: 1;
   }
 
   .player-bar-controls button {
@@ -968,7 +1175,7 @@ form label {
 
   .player-bar-seek {
     flex: 1 1 100%;
-    order: 3;
+    order: 2;
   }
 
   .app-nav-mobile {
@@ -1029,4 +1236,184 @@ form label {
   .detail-view {
     padding-bottom: calc(190px + env(safe-area-inset-bottom));
   }
+}
+
+.app-jam-button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #222;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  margin-left: 1.5rem;
+}
+
+.app-jam-button svg {
+  width: 1.1em;
+  height: 1.1em;
+  margin: 0;
+}
+
+/* Shares the full-screen overlay treatment used by .now-playing/.detail-view. */
+.jam-room,
+.jam-start-cta {
+  position: fixed;
+  inset: 0;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  background: #121212;
+  padding: 1rem 1.5rem calc(1.5rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+.jam-room-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 1.5rem;
+}
+
+.jam-room-topbar button {
+  background: none;
+  border: none;
+  padding: 0.5rem;
+}
+
+.jam-room-topbar button svg {
+  width: 1.4em;
+  height: 1.4em;
+  margin: 0;
+}
+
+.jam-room-invite {
+  max-width: 320px;
+  width: 100%;
+  margin: 0 auto 1.5rem;
+  text-align: center;
+  background: #1a1a1a;
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.jam-room-qr {
+  width: 180px;
+  height: 180px;
+  border-radius: 8px;
+  margin: 0 auto 0.75rem;
+  display: block;
+}
+
+.jam-room-code {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+
+.jam-room-url {
+  color: #999;
+  font-size: 0.8rem;
+  margin: 0.35rem 0 1rem;
+  word-break: break-all;
+}
+
+.jam-room-end {
+  background: #333;
+  border-radius: 999px;
+  padding: 0.5rem 1.25rem;
+}
+
+.jam-room-section {
+  max-width: 480px;
+  width: 100%;
+  margin: 0 auto 1.75rem;
+}
+
+.jam-room-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.jam-room-empty {
+  color: #999;
+  font-size: 0.9rem;
+}
+
+.jam-now-playing {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.jam-now-playing-title {
+  font-weight: 600;
+}
+
+.jam-now-playing-subtitle {
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.jam-added-by {
+  color: #999;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.jam-room-search-form {
+  margin-bottom: 0.75rem;
+}
+
+.jam-start-cta {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.75rem;
+}
+
+.jam-start-cta-close {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  background: none;
+  border: none;
+  padding: 0.5rem;
+}
+
+.jam-start-cta-close svg {
+  width: 1.4em;
+  height: 1.4em;
+  margin: 0;
+}
+
+.jam-start-cta p {
+  color: #999;
+  max-width: 320px;
+}
+
+.jam-start-cta-button {
+  background: #1db954;
+  color: #000;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.65rem 1.75rem;
+}
+
+.jam-guest-entry {
+  max-width: 320px;
+  margin: 15vh auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: center;
+  padding: 0 1rem;
+}
+
+.jam-guest-entry form {
+  flex-direction: column;
 }

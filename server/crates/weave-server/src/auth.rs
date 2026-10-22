@@ -101,3 +101,84 @@ pub async fn create_session(db: &SqlitePool, user_id: &str) -> Result<String, sq
         .await?;
     Ok(token)
 }
+
+/// A participant in a Weave Jam session, authenticated via a jam-scoped
+/// token (`jam_members.token`) rather than a real account — this is what
+/// lets guests join via QR code without creating a login. Deliberately a
+/// separate extractor/table from `AuthUser`/`sessions`: a jam token only
+/// ever authenticates jam routes, never `/api/me`, `/api/search`, etc.
+pub struct JamMember {
+    pub token: String,
+    pub jam_id: String,
+    pub name: String,
+    pub is_host: bool,
+}
+
+#[async_trait]
+impl FromRequestParts<crate::AppState> for JamMember {
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(parts: &mut Parts, state: &crate::AppState) -> Result<Self, Self::Rejection> {
+        let token = extract_token(parts, state).await.ok_or((StatusCode::UNAUTHORIZED, "missing token"))?;
+
+        let row: (String, String, bool) = sqlx::query_as(
+            "SELECT jam_members.jam_id, jam_members.name, jam_members.is_host \
+             FROM jam_members JOIN jam_sessions ON jam_sessions.id = jam_members.jam_id \
+             WHERE jam_members.token = ? AND jam_sessions.ended_at IS NULL",
+        )
+        .bind(&token)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error"))?
+        .ok_or((StatusCode::UNAUTHORIZED, "invalid token or jam has ended"))?;
+
+        Ok(JamMember { token, jam_id: row.0, name: row.1, is_host: row.2 })
+    }
+}
+
+/// Accepts either a real account session or a jam-scoped token — used only
+/// by the search route, so jam guests can find tracks to add to the queue
+/// without needing a real account. Every other account action (likes,
+/// playlists, settings, admin) still requires `AuthUser` specifically, so
+/// this doesn't widen what a guest token can do anywhere else.
+pub enum Searcher {
+    Account(#[allow(dead_code)] AuthUser),
+    Guest(#[allow(dead_code)] JamMember),
+}
+
+#[async_trait]
+impl FromRequestParts<crate::AppState> for Searcher {
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(parts: &mut Parts, state: &crate::AppState) -> Result<Self, Self::Rejection> {
+        let token = extract_token(parts, state).await.ok_or((StatusCode::UNAUTHORIZED, "missing token"))?;
+
+        let account_row: Option<(String, String, bool)> = sqlx::query_as(
+            "SELECT users.id, users.username, users.is_admin \
+             FROM sessions JOIN users ON users.id = sessions.user_id \
+             WHERE sessions.token = ?",
+        )
+        .bind(&token)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error"))?;
+        if let Some(row) = account_row {
+            return Ok(Searcher::Account(AuthUser { id: row.0, username: row.1, is_admin: row.2 }));
+        }
+
+        let guest_row: Option<(String, String, bool)> = sqlx::query_as(
+            "SELECT jam_members.jam_id, jam_members.name, jam_members.is_host \
+             FROM jam_members JOIN jam_sessions ON jam_sessions.id = jam_members.jam_id \
+             WHERE jam_members.token = ? AND jam_sessions.ended_at IS NULL",
+        )
+        .bind(&token)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error"))?;
+        if let Some(row) = guest_row {
+            return Ok(Searcher::Guest(JamMember { token, jam_id: row.0, name: row.1, is_host: row.2 }));
+        }
+
+        Err((StatusCode::UNAUTHORIZED, "invalid or expired token"))
+    }
+}

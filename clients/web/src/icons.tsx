@@ -177,6 +177,18 @@ export function UserIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ShareIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <circle cx="18" cy="5" r="2.5" />
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="19" r="2.5" />
+      <line x1="8.2" y1="10.7" x2="15.8" y2="6.3" />
+      <line x1="8.2" y1="13.3" x2="15.8" y2="17.7" />
+    </Icon>
+  );
+}
+
 const HEART_PATH = "M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z";
 
 export function HeartIcon(props: SVGProps<SVGSVGElement>) {
@@ -191,6 +203,17 @@ export function HeartFilledIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon fill="currentColor" {...props}>
       <path d={HEART_PATH} />
+    </Icon>
+  );
+}
+
+export function JamIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M2 20c0-3.3 3.1-6 7-6s7 2.7 7 6" />
+      <path d="M16 9a3 3 0 1 0-1-5.9" />
+      <path d="M17 14.3c2.9.6 5 2.9 5 5.7" />
     </Icon>
   );
 }

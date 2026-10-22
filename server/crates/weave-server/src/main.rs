@@ -1,9 +1,10 @@
 mod auth;
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path as FsPath, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use auth::{create_session, hash_password, verify_password, AdminUser, AuthUser};
+use auth::{create_session, generate_token, hash_password, verify_password, AdminUser, AuthUser, JamMember, Searcher};
 use axum::{
     body::Body,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
@@ -36,6 +37,14 @@ struct AppState {
     /// time — a single process-wide channel filtered by user id per
     /// connection, since a self-hosted install doesn't need per-user channels.
     playback_tx: broadcast::Sender<PlaybackEvent>,
+    /// Same fan-out pattern as `playback_tx`, filtered by jam id instead of
+    /// user id, for Weave Jam's live queue/now-playing updates.
+    jam_tx: broadcast::Sender<JamEvent>,
+    /// Ephemeral "what's actually playing right now" mirror per active jam,
+    /// pushed by the host's client. Not persisted — a jam only means
+    /// anything while the host's browser (which owns the real queue) is
+    /// open, so there's nothing worth surviving a server restart for.
+    jam_live: Arc<Mutex<HashMap<String, JamLive>>>,
 }
 
 impl AppState {
@@ -64,7 +73,16 @@ async fn main() {
     std::fs::create_dir_all(&cache_dir).expect("failed to create cache directory");
 
     let (playback_tx, _) = broadcast::channel(32);
-    let state = AppState { providers: vec![local_provider, ytdlp_provider], db, cache_dir, playback_tx };
+    let (jam_tx, _) = broadcast::channel(32);
+    let jam_live: Arc<Mutex<HashMap<String, JamLive>>> = Arc::new(Mutex::new(HashMap::new()));
+    let state = AppState {
+        providers: vec![local_provider, ytdlp_provider],
+        db,
+        cache_dir,
+        playback_tx,
+        jam_tx,
+        jam_live,
+    };
 
     let app = Router::new()
         .route("/health", get(health))
@@ -86,6 +104,14 @@ async fn main() {
         .route("/api/stream", get(stream))
         .route("/api/playback", get(get_playback).post(update_playback))
         .route("/api/playback/ws", get(playback_ws))
+        .route("/api/jam", post(create_jam))
+        .route("/api/jam/:id/join", post(join_jam))
+        .route("/api/jam/:id/state", get(jam_state))
+        .route("/api/jam/:id/queue", post(add_jam_queue))
+        .route("/api/jam/:id/playback", post(jam_playback))
+        .route("/api/jam/:id/end", post(end_jam))
+        .route("/api/jam/:id/recommendations", get(jam_recommendations))
+        .route("/api/jam/:id/ws", get(jam_ws))
         .with_state(state);
 
     let addr = "0.0.0.0:4533";
@@ -343,7 +369,7 @@ struct SearchParams {
 
 async fn search(
     State(state): State<AppState>,
-    _user: AuthUser,
+    _user: Searcher,
     Query(params): Query<SearchParams>,
 ) -> Json<serde_json::Value> {
     let query = SearchQuery { text: params.q, limit: 25 };
@@ -860,6 +886,365 @@ async fn handle_playback_ws(mut socket: WebSocket, mut rx: broadcast::Receiver<P
             Err(broadcast::error::RecvError::Closed) => break,
         };
         if event.user_id != user_id {
+            continue;
+        }
+        let Ok(json) = serde_json::to_string(&event) else { continue };
+        if socket.send(Message::Text(json)).await.is_err() {
+            break;
+        }
+    }
+}
+
+// --- Weave Jam ----------------------------------------------------------
+// A host-started collaborative session: guests join via a short code/QR
+// link (see `JamMember` in auth.rs) and add tracks to the host's real
+// queue. The host's own `useQueue` stays the single source of truth for
+// playback order — this layer only logs attribution, mirrors "now playing"
+// for guests to watch, and fans out the resulting events.
+
+/// Ephemeral "what's actually playing" snapshot for one jam, kept in
+/// `AppState::jam_live` and pushed by the host's client roughly on the same
+/// cadence as its own cross-device heartbeat (see `jam_playback`).
+#[derive(Clone, Serialize, Default)]
+struct JamLive {
+    now_playing: Option<Track>,
+    position_secs: f64,
+    is_playing: bool,
+    upcoming: Vec<Track>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "type")]
+enum JamEvent {
+    MemberJoined { jam_id: String, name: String },
+    QueueAdded { jam_id: String, track: Track, added_by_name: String },
+    PlaybackUpdated { jam_id: String, live: JamLive },
+    Ended { jam_id: String },
+}
+
+impl JamEvent {
+    fn jam_id(&self) -> &str {
+        match self {
+            JamEvent::MemberJoined { jam_id, .. } => jam_id,
+            JamEvent::QueueAdded { jam_id, .. } => jam_id,
+            JamEvent::PlaybackUpdated { jam_id, .. } => jam_id,
+            JamEvent::Ended { jam_id } => jam_id,
+        }
+    }
+}
+
+/// 6-char join code. Excludes visually-ambiguous characters (0/O, 1/I)
+/// since people retype these by hand as often as they scan the QR.
+fn generate_jam_code() -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let mut rng = rand::thread_rng();
+    (0..6).map(|_| *ALPHABET.choose(&mut rng).unwrap() as char).collect()
+}
+
+/// Starts a jam for the calling account. Only one active jam per host at a
+/// time — starting a new one quietly ends whatever this host had running,
+/// rather than leaving orphaned jams accumulating.
+async fn create_jam(State(state): State<AppState>, user: AuthUser) -> Response {
+    let _ = sqlx::query("UPDATE jam_sessions SET ended_at = datetime('now') WHERE host_user_id = ? AND ended_at IS NULL")
+        .bind(&user.id)
+        .execute(&state.db)
+        .await;
+
+    let mut jam_id = generate_jam_code();
+    for _ in 0..5 {
+        let taken: Option<i64> = sqlx::query_scalar("SELECT 1 FROM jam_sessions WHERE id = ?")
+            .bind(&jam_id)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
+        if taken.is_none() {
+            break;
+        }
+        jam_id = generate_jam_code();
+    }
+
+    if sqlx::query("INSERT INTO jam_sessions (id, host_user_id) VALUES (?, ?)")
+        .bind(&jam_id)
+        .bind(&user.id)
+        .execute(&state.db)
+        .await
+        .is_err()
+    {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "could not create jam").into_response();
+    }
+
+    let token = generate_token();
+    if sqlx::query("INSERT INTO jam_members (token, jam_id, name, is_host) VALUES (?, ?, ?, 1)")
+        .bind(&token)
+        .bind(&jam_id)
+        .bind(&user.username)
+        .execute(&state.db)
+        .await
+        .is_err()
+    {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "could not create jam").into_response();
+    }
+
+    Json(serde_json::json!({ "jam_id": jam_id, "token": token })).into_response()
+}
+
+#[derive(Deserialize)]
+struct JoinJamBody {
+    name: String,
+}
+
+/// Public — no login required, this is exactly the "scan a QR, pick a name"
+/// path. Rejects jams that don't exist or have already ended.
+async fn join_jam(State(state): State<AppState>, Path(jam_id): Path<String>, Json(body): Json<JoinJamBody>) -> Response {
+    let active: Option<i64> = sqlx::query_scalar("SELECT 1 FROM jam_sessions WHERE id = ? AND ended_at IS NULL")
+        .bind(&jam_id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+    if active.is_none() {
+        return (StatusCode::NOT_FOUND, "jam not found or has ended").into_response();
+    }
+
+    let name = body.name.trim();
+    if name.is_empty() {
+        return (StatusCode::BAD_REQUEST, "name is required").into_response();
+    }
+
+    let token = generate_token();
+    if sqlx::query("INSERT INTO jam_members (token, jam_id, name, is_host) VALUES (?, ?, ?, 0)")
+        .bind(&token)
+        .bind(&jam_id)
+        .bind(name)
+        .execute(&state.db)
+        .await
+        .is_err()
+    {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "could not join jam").into_response();
+    }
+
+    let _ = state.jam_tx.send(JamEvent::MemberJoined { jam_id: jam_id.clone(), name: name.to_string() });
+
+    Json(serde_json::json!({ "jam_id": jam_id, "token": token, "name": name })).into_response()
+}
+
+#[derive(Serialize)]
+struct JamMemberDto {
+    name: String,
+    is_host: bool,
+}
+
+#[derive(Serialize)]
+struct JamQueueLogEntry {
+    id: String,
+    track: Track,
+    added_by_name: String,
+}
+
+/// Snapshot for (re)hydrating the jam panel/room — members, the full
+/// attribution log, and whatever "now playing" was last reported.
+async fn jam_state(State(state): State<AppState>, member: JamMember) -> Response {
+    let member_rows: Vec<(String, bool)> =
+        sqlx::query_as("SELECT name, is_host FROM jam_members WHERE jam_id = ? ORDER BY joined_at")
+            .bind(&member.jam_id)
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
+    let members: Vec<JamMemberDto> =
+        member_rows.into_iter().map(|(name, is_host)| JamMemberDto { name, is_host }).collect();
+
+    let log_rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT id, track_json, added_by_name FROM jam_queue_log WHERE jam_id = ? ORDER BY created_at",
+    )
+    .bind(&member.jam_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let queue_log: Vec<JamQueueLogEntry> = log_rows
+        .into_iter()
+        .filter_map(|(id, track_json, added_by_name)| {
+            serde_json::from_str::<Track>(&track_json).ok().map(|track| JamQueueLogEntry { id, track, added_by_name })
+        })
+        .collect();
+
+    let live = state.jam_live.lock().unwrap().get(&member.jam_id).cloned();
+
+    Json(serde_json::json!({ "jam_id": member.jam_id, "members": members, "queue_log": queue_log, "live": live }))
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct AddJamQueueBody {
+    track: Track,
+}
+
+/// Logs attribution for a track someone added to the jam and fans it out —
+/// the host's client is what actually calls `queueApi.enqueue` in response
+/// (see `useJam.ts`), so this never needs to know anything about playback
+/// order/shuffle/repeat.
+async fn add_jam_queue(
+    State(state): State<AppState>,
+    member: JamMember,
+    Path(jam_id): Path<String>,
+    Json(body): Json<AddJamQueueBody>,
+) -> Response {
+    if jam_id != member.jam_id {
+        return (StatusCode::FORBIDDEN, "wrong jam").into_response();
+    }
+    let Ok(track_json) = serde_json::to_string(&body.track) else {
+        return (StatusCode::BAD_REQUEST, "invalid track").into_response();
+    };
+
+    let id = Uuid::new_v4().to_string();
+    if sqlx::query("INSERT INTO jam_queue_log (id, jam_id, track_json, added_by_name) VALUES (?, ?, ?, ?)")
+        .bind(&id)
+        .bind(&jam_id)
+        .bind(&track_json)
+        .bind(&member.name)
+        .execute(&state.db)
+        .await
+        .is_err()
+    {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "could not add to queue").into_response();
+    }
+
+    let _ = state.jam_tx.send(JamEvent::QueueAdded {
+        jam_id: jam_id.clone(),
+        track: body.track,
+        added_by_name: member.name.clone(),
+    });
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+struct JamPlaybackBody {
+    track: Option<Track>,
+    position_secs: f64,
+    is_playing: bool,
+    #[serde(default)]
+    upcoming: Vec<Track>,
+}
+
+/// Host-only heartbeat mirroring what's actually playing, so guests' "now
+/// playing" view and "up next" list stay roughly live without the server
+/// needing to understand playback order itself.
+async fn jam_playback(
+    State(state): State<AppState>,
+    member: JamMember,
+    Path(jam_id): Path<String>,
+    Json(body): Json<JamPlaybackBody>,
+) -> Response {
+    if jam_id != member.jam_id || !member.is_host {
+        return (StatusCode::FORBIDDEN, "host only").into_response();
+    }
+
+    let live = JamLive {
+        now_playing: body.track,
+        position_secs: body.position_secs,
+        is_playing: body.is_playing,
+        upcoming: body.upcoming,
+    };
+    state.jam_live.lock().unwrap().insert(jam_id.clone(), live.clone());
+    let _ = state.jam_tx.send(JamEvent::PlaybackUpdated { jam_id, live });
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn end_jam(State(state): State<AppState>, member: JamMember, Path(jam_id): Path<String>) -> Response {
+    if jam_id != member.jam_id || !member.is_host {
+        return (StatusCode::FORBIDDEN, "host only").into_response();
+    }
+
+    let _ = sqlx::query("UPDATE jam_sessions SET ended_at = datetime('now') WHERE id = ?")
+        .bind(&jam_id)
+        .execute(&state.db)
+        .await;
+    state.jam_live.lock().unwrap().remove(&jam_id);
+    let _ = state.jam_tx.send(JamEvent::Ended { jam_id });
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// Recommendations seeded off whatever was most recently added to the jam
+/// (falling back to the live "now playing" track), via the same
+/// `MediaProvider::radio` continuation used by `/api/radio` — just re-seeded
+/// per jam and deduped against everything already added.
+async fn jam_recommendations(State(state): State<AppState>, member: JamMember, Path(jam_id): Path<String>) -> Response {
+    if jam_id != member.jam_id {
+        return (StatusCode::FORBIDDEN, "wrong jam").into_response();
+    }
+
+    let last_track_json: Option<String> = sqlx::query_scalar(
+        "SELECT track_json FROM jam_queue_log WHERE jam_id = ? ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(&jam_id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let seed_track = match last_track_json.and_then(|j| serde_json::from_str::<Track>(&j).ok()) {
+        Some(track) => Some(track),
+        None => state.jam_live.lock().unwrap().get(&jam_id).and_then(|l| l.now_playing.clone()),
+    };
+
+    let Some(seed_track) = seed_track else {
+        return Json(serde_json::json!({ "results": Vec::<Track>::new() })).into_response();
+    };
+    let Some(source) = seed_track.sources.first() else {
+        return Json(serde_json::json!({ "results": Vec::<Track>::new() })).into_response();
+    };
+    let Some(provider) = state.provider(&source.provider_id) else {
+        return Json(serde_json::json!({ "results": Vec::<Track>::new() })).into_response();
+    };
+
+    let candidates = match provider.radio(&source.source_ref, 16).await {
+        Ok(results) => results,
+        Err(err) => {
+            tracing::warn!(%err, "jam recommendations failed");
+            return Json(serde_json::json!({ "results": Vec::<Track>::new() })).into_response();
+        }
+    };
+
+    let existing_json: Vec<String> = sqlx::query_scalar("SELECT track_json FROM jam_queue_log WHERE jam_id = ?")
+        .bind(&jam_id)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+    let existing_sources: HashSet<(String, String)> = existing_json
+        .iter()
+        .filter_map(|j| serde_json::from_str::<Track>(j).ok())
+        .filter_map(|t| t.sources.first().map(|s| (s.provider_id.clone(), s.source_ref.clone())))
+        .collect();
+
+    let results: Vec<Track> = candidates
+        .into_iter()
+        .filter(|t| {
+            t.sources
+                .first()
+                .map(|s| !existing_sources.contains(&(s.provider_id.clone(), s.source_ref.clone())))
+                .unwrap_or(true)
+        })
+        .take(6)
+        .collect();
+
+    Json(serde_json::json!({ "results": results })).into_response()
+}
+
+/// Live push side of the jam — same shape as `playback_ws`, filtered by jam
+/// id instead of user id.
+async fn jam_ws(State(state): State<AppState>, member: JamMember, ws: WebSocketUpgrade) -> Response {
+    let rx = state.jam_tx.subscribe();
+    ws.on_upgrade(move |socket| handle_jam_ws(socket, rx, member.jam_id))
+}
+
+async fn handle_jam_ws(mut socket: WebSocket, mut rx: broadcast::Receiver<JamEvent>, jam_id: String) {
+    loop {
+        let event = match rx.recv().await {
+            Ok(event) => event,
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => break,
+        };
+        if event.jam_id() != jam_id {
             continue;
         }
         let Ok(json) = serde_json::to_string(&event) else { continue };
