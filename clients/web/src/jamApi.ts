@@ -33,11 +33,24 @@ export type JamEvent =
 
 // Starting a jam uses the caller's real login token — every other jam
 // action below uses the jam-scoped token this returns instead, which only
-// ever authenticates jam routes (see JamMember in auth.rs).
+// ever authenticates jam routes (see JamMember in auth.rs). Safe to call
+// even when this account already has a jam running elsewhere — the server
+// resumes it (issuing this device its own host token for the same jam)
+// instead of ending it out from under whichever device started it.
 export async function createJam(loginToken: string): Promise<{ jam_id: string; token: string }> {
   const res = await fetch("/api/jam", { method: "POST", headers: { Authorization: `Bearer ${loginToken}` } });
   if (!res.ok) throw new Error("Could not start jam.");
   return res.json();
+}
+
+// Lightweight presence check for hydrating a newly-opened device into a
+// jam this account already has running elsewhere — doesn't issue a token
+// or create a member row by itself.
+export async function fetchMyActiveJam(loginToken: string): Promise<string | null> {
+  const res = await fetch("/api/jam/mine", { headers: { Authorization: `Bearer ${loginToken}` } });
+  if (!res.ok || res.status === 204) return null;
+  const data = await res.json();
+  return data.jam_id ?? null;
 }
 
 export async function joinJam(jamId: string, name: string): Promise<{ jam_id: string; token: string; name: string }> {

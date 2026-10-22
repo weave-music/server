@@ -105,6 +105,7 @@ async fn main() {
         .route("/api/playback", get(get_playback).post(update_playback))
         .route("/api/playback/ws", get(playback_ws))
         .route("/api/jam", post(create_jam))
+        .route("/api/jam/mine", get(my_active_jam))
         .route("/api/jam/:id/join", post(join_jam))
         .route("/api/jam/:id/state", get(jam_state))
         .route("/api/jam/:id/queue", post(add_jam_queue))
@@ -941,37 +942,48 @@ fn generate_jam_code() -> String {
     (0..6).map(|_| *ALPHABET.choose(&mut rng).unwrap() as char).collect()
 }
 
-/// Starts a jam for the calling account. Only one active jam per host at a
-/// time — starting a new one quietly ends whatever this host had running,
-/// rather than leaving orphaned jams accumulating.
+/// Starts a jam for the calling account — or, if this account already has
+/// one running (e.g. started from another device), resumes it by handing
+/// this device its own host token for the *existing* jam instead of ending
+/// it out from under whichever device actually started it. That's what
+/// used to happen here (unconditionally ending any prior jam first), which
+/// meant opening the app on a second device and tapping "Start a Jam"
+/// would silently kill the jam already running on the first one.
 async fn create_jam(State(state): State<AppState>, user: AuthUser) -> Response {
-    let _ = sqlx::query("UPDATE jam_sessions SET ended_at = datetime('now') WHERE host_user_id = ? AND ended_at IS NULL")
-        .bind(&user.id)
-        .execute(&state.db)
-        .await;
-
-    let mut jam_id = generate_jam_code();
-    for _ in 0..5 {
-        let taken: Option<i64> = sqlx::query_scalar("SELECT 1 FROM jam_sessions WHERE id = ?")
-            .bind(&jam_id)
+    let existing_jam_id: Option<String> =
+        sqlx::query_scalar("SELECT id FROM jam_sessions WHERE host_user_id = ? AND ended_at IS NULL")
+            .bind(&user.id)
             .fetch_optional(&state.db)
             .await
             .unwrap_or(None);
-        if taken.is_none() {
-            break;
-        }
-        jam_id = generate_jam_code();
-    }
 
-    if sqlx::query("INSERT INTO jam_sessions (id, host_user_id) VALUES (?, ?)")
-        .bind(&jam_id)
-        .bind(&user.id)
-        .execute(&state.db)
-        .await
-        .is_err()
-    {
-        return (StatusCode::INTERNAL_SERVER_ERROR, "could not create jam").into_response();
-    }
+    let jam_id = match existing_jam_id {
+        Some(id) => id,
+        None => {
+            let mut id = generate_jam_code();
+            for _ in 0..5 {
+                let taken: Option<i64> = sqlx::query_scalar("SELECT 1 FROM jam_sessions WHERE id = ?")
+                    .bind(&id)
+                    .fetch_optional(&state.db)
+                    .await
+                    .unwrap_or(None);
+                if taken.is_none() {
+                    break;
+                }
+                id = generate_jam_code();
+            }
+            if sqlx::query("INSERT INTO jam_sessions (id, host_user_id) VALUES (?, ?)")
+                .bind(&id)
+                .bind(&user.id)
+                .execute(&state.db)
+                .await
+                .is_err()
+            {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "could not create jam").into_response();
+            }
+            id
+        }
+    };
 
     let token = generate_token();
     if sqlx::query("INSERT INTO jam_members (token, jam_id, name, is_host) VALUES (?, ?, ?, 1)")
@@ -986,6 +998,24 @@ async fn create_jam(State(state): State<AppState>, user: AuthUser) -> Response {
     }
 
     Json(serde_json::json!({ "jam_id": jam_id, "token": token })).into_response()
+}
+
+/// Lightweight presence check — does this account already have a jam
+/// running right now? Used by every device's client on load so a second
+/// device can hydrate into an already-running jam instead of only finding
+/// out about it by trying (and silently taking over) via `create_jam`.
+async fn my_active_jam(State(state): State<AppState>, user: AuthUser) -> Response {
+    let jam_id: Option<String> =
+        sqlx::query_scalar("SELECT id FROM jam_sessions WHERE host_user_id = ? AND ended_at IS NULL")
+            .bind(&user.id)
+            .fetch_optional(&state.db)
+            .await
+            .unwrap_or(None);
+
+    match jam_id {
+        Some(jam_id) => Json(serde_json::json!({ "jam_id": jam_id })).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    }
 }
 
 #[derive(Deserialize)]

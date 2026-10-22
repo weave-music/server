@@ -5,6 +5,7 @@ import {
   endJam as endJamRequest,
   fetchJamRecommendations,
   fetchJamState,
+  fetchMyActiveJam,
   jamWsUrl,
   postJamPlayback,
   type JamEvent,
@@ -149,6 +150,25 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
   }, []);
 
   const viewer = useJamViewer(jam?.token ?? null, jam?.jamId ?? null, onJamEvent);
+
+  // On load, hydrate into a jam this account already has running on
+  // another device — without this, a second device has no way to know one
+  // exists, and tapping "Start a Jam" there used to silently end the one
+  // already running (create_jam now resumes it instead either way, but
+  // this is what makes it obviously-already-active here too).
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetchMyActiveJam(token).then((jamId) => {
+      if (cancelled || !jamId) return;
+      createJam(token).then(({ jam_id, token: jamToken }) => {
+        if (!cancelled) setJam({ jamId: jam_id, token: jamToken });
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const startJam = useCallback(async () => {
     if (!token) return;
