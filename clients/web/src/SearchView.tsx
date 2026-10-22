@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { searchTracks } from "./api";
 import { Artwork } from "./Artwork";
 import type { DetailTarget } from "./DetailView";
@@ -59,6 +59,34 @@ export function SearchView({
   const [tab, setTab] = useState<FilterTab>("all");
   const [searchHistory, setSearchHistory] = useState<string[]>(loadSearchHistory);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [liveSuggestions, setLiveSuggestions] = useState<Track[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
+  // Guards against a slower, earlier request's response landing after a
+  // faster, more recent one — only the latest keystroke's result sticks.
+  const suggestionRequestRef = useRef(0);
+
+  // Live typeahead: a handful of real track matches as you type, separate
+  // from the committed full-results list below (which only updates on
+  // Enter/Search). Debounced since every keystroke hitting the ytdlp
+  // provider would mean shelling out to yt-dlp on every keystroke.
+  useEffect(() => {
+    const term = query.trim();
+    if (!searchFocused || term.length < 2) {
+      setLiveSuggestions([]);
+      setSuggesting(false);
+      return;
+    }
+    const requestId = ++suggestionRequestRef.current;
+    setSuggesting(true);
+    const timer = setTimeout(() => {
+      searchTracks(term, token).then((tracks) => {
+        if (suggestionRequestRef.current !== requestId) return;
+        setLiveSuggestions(tracks.slice(0, 6));
+        setSuggesting(false);
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [query, token, searchFocused]);
 
   const autocompleteHistory = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -191,8 +219,31 @@ export function SearchView({
           </button>
         )}
       </form>
-      {searchFocused && (autocompleteHistory.length > 0 || autocompletePlaylists.length > 0) && (
+      {searchFocused &&
+        (liveSuggestions.length > 0 || autocompleteHistory.length > 0 || autocompletePlaylists.length > 0) && (
         <div className="search-history" onMouseDown={(e) => e.preventDefault()}>
+          {query.trim().length >= 2 && liveSuggestions.length > 0 && (
+            <>
+              <div className="search-history-heading"><span>Tracks</span></div>
+              {liveSuggestions.map((track) => (
+                <button
+                  key={track.id}
+                  type="button"
+                  className="search-suggestion-track"
+                  onClick={() => {
+                    setSearchFocused(false);
+                    onPlay(track);
+                  }}
+                >
+                  <Artwork url={track.artwork_url} size="sm" alt="" />
+                  <span className="search-suggestion-text">
+                    <span className="search-suggestion-title">{track.title}</span>
+                    {track.artist_name && <span className="search-suggestion-artist">{track.artist_name}</span>}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
           {autocompleteHistory.length > 0 && (
             <>
               <div className="search-history-heading"><span>{query.trim() ? "Suggestions" : "Recent searches"}</span><button type="button" onClick={clearSearchHistory}>Clear</button></div>
