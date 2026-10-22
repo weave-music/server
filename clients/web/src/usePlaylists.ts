@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { randomId } from "./randomId";
 import type { Track } from "./types";
 
 export interface Playlist {
@@ -28,7 +29,7 @@ export function usePlaylists() {
   }, [playlists]);
 
   const createPlaylist = useCallback((name: string, track?: Track) => {
-    setPlaylists((p) => [...p, { id: crypto.randomUUID(), name, tracks: track ? [track] : [] }]);
+    setPlaylists((p) => [...p, { id: randomId(), name, tracks: track ? [track] : [] }]);
   }, []);
 
   const deletePlaylist = useCallback((id: string) => {
