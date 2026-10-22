@@ -11,6 +11,7 @@ import { PlayerBar } from "./PlayerBar";
 import { PlaylistsView } from "./PlaylistsView";
 import { QueueView } from "./QueueView";
 import { SearchView } from "./SearchView";
+import { Toast } from "./Toast";
 import { useAuth } from "./useAuth";
 import { useLikes } from "./useLikes";
 import { useListeningHistory } from "./useListeningHistory";
@@ -25,6 +26,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("discover");
   const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [detail, setDetail] = useState<DetailTarget | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const queueApi = useQueue(token);
   const playlistApi = usePlaylists();
   const history = useListeningHistory();
@@ -44,6 +46,7 @@ export default function App() {
   async function startRadio(track: Track) {
     const more = await fetchRadio(token!, track);
     queueApi.playTracks([track, ...more]);
+    setToast(`Started radio from "${track.title}"`);
   }
 
   return (
@@ -111,14 +114,14 @@ export default function App() {
               setTab("queue");
               setNowPlayingOpen(false);
             }}
-            onRadio={(track) => {
-              startRadio(track);
-              setNowPlayingOpen(false);
-            }}
+            onRadio={startRadio}
             onOpenDetail={(target) => {
               setDetail(target);
               setNowPlayingOpen(false);
             }}
+            playlists={playlistApi.playlists}
+            onAddToPlaylist={playlistApi.addTrackToPlaylist}
+            onCreatePlaylist={playlistApi.createPlaylist}
           />
         )}
 
@@ -135,6 +138,8 @@ export default function App() {
             onOpenDetail={setDetail}
           />
         )}
+
+        {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
       </div>
     </LikesProvider>
   );

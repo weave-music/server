@@ -1,3 +1,4 @@
+import { AddToPlaylistMenu } from "./AddToPlaylistMenu";
 import { Artwork } from "./Artwork";
 import type { DetailTarget } from "./DetailView";
 import { formatTime } from "./format";
@@ -15,6 +16,7 @@ import {
   UserIcon,
 } from "./icons";
 import { LikeButton } from "./LikeButton";
+import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
 import type { useQueue } from "./useQueue";
 
@@ -24,9 +26,21 @@ interface Props {
   onOpenQueue: () => void;
   onRadio: (track: Track) => void;
   onOpenDetail: (target: DetailTarget) => void;
+  playlists: Playlist[];
+  onAddToPlaylist: (playlistId: string, track: Track) => void;
+  onCreatePlaylist: (name: string, track?: Track) => void;
 }
 
-export function NowPlayingView({ queueApi, onClose, onOpenQueue, onRadio, onOpenDetail }: Props) {
+export function NowPlayingView({
+  queueApi,
+  onClose,
+  onOpenQueue,
+  onRadio,
+  onOpenDetail,
+  playlists,
+  onAddToPlaylist,
+  onCreatePlaylist,
+}: Props) {
   const {
     currentTrack,
     isPlaying,
@@ -142,6 +156,12 @@ export function NowPlayingView({ queueApi, onClose, onOpenQueue, onRadio, onOpen
         <button onClick={() => onRadio(currentTrack)}>
           <RadioIcon /> Radio
         </button>
+        <AddToPlaylistMenu
+          track={currentTrack}
+          playlists={playlists}
+          onAddToPlaylist={onAddToPlaylist}
+          onCreatePlaylist={onCreatePlaylist}
+        />
       </div>
     </div>
   );
