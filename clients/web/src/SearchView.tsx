@@ -4,6 +4,7 @@ import { Artwork } from "./Artwork";
 import type { DetailTarget } from "./DetailView";
 import { EntityCard } from "./EntityCard";
 import { RadioIcon } from "./icons";
+import { LikeButton } from "./LikeButton";
 import { TrackRow } from "./TrackRow";
 import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
@@ -102,6 +103,7 @@ export function SearchView({
       <ul className="track-list">
         {tracks.map((track) => (
           <TrackRow key={track.id} track={track} onPlay={() => onPlay(track)}>
+            <LikeButton track={track} />
             <button onClick={() => onEnqueue(track)} title="Add to queue">
               + Queue
             </button>

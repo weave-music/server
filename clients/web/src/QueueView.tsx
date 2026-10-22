@@ -1,3 +1,4 @@
+import { LikeButton } from "./LikeButton";
 import { TrackRow } from "./TrackRow";
 import type { Track } from "./types";
 
@@ -23,6 +24,7 @@ export function QueueView({ queue, currentTrackId, onPlay, onRemove, onMove }: P
       <ul className="track-list">
         {queue.map((track, i) => (
           <TrackRow key={track.id} track={track} onPlay={() => onPlay(track)} isCurrent={track.id === currentTrackId}>
+            <LikeButton track={track} />
             <button onClick={() => onMove(track.id, -1)} disabled={i === 0} title="Move up">
               ↑
             </button>

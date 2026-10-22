@@ -3,6 +3,7 @@ import { fetchAlbumTracks, fetchArtistReleases, fetchArtistTracks, fetchRadio } 
 import { Artwork } from "./Artwork";
 import { EntityCard } from "./EntityCard";
 import { ChevronLeftIcon, PlayIcon, RadioIcon, ShuffleIcon } from "./icons";
+import { LikeButton } from "./LikeButton";
 import { TrackRow } from "./TrackRow";
 import type { ReleaseSummary, Track } from "./types";
 
@@ -115,7 +116,9 @@ export function DetailView({ target, token, onClose, onPlay, onRadio, onOpenDeta
             </div>
             <ul className="track-list">
               {tracks.map((t) => (
-                <TrackRow key={t.id} track={t} onPlay={() => onPlay(tracks, t.id)} />
+                <TrackRow key={t.id} track={t} onPlay={() => onPlay(tracks, t.id)}>
+                  <LikeButton track={t} />
+                </TrackRow>
               ))}
             </ul>
           </section>
@@ -214,7 +217,9 @@ export function DetailView({ target, token, onClose, onPlay, onRadio, onOpenDeta
 
       <ul className="track-list">
         {tracks.map((t) => (
-          <TrackRow key={t.id} track={t} onPlay={() => onPlay(tracks, t.id)} />
+          <TrackRow key={t.id} track={t} onPlay={() => onPlay(tracks, t.id)}>
+            <LikeButton track={t} />
+          </TrackRow>
         ))}
       </ul>
     </div>

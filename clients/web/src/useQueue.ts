@@ -8,7 +8,12 @@ export type RepeatMode = "off" | "all" | "one";
 // or removing other queue entries never has to special-case shifting an
 // index out from under the currently playing track.
 export function useQueue(token: string | null) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // A plain useRef here would be stale: the <audio> element only mounts
+  // once the user is past the auth gate, but a ref's value isn't reactive
+  // — an effect keyed on a dependency that never changes (like a stable
+  // callback) has no way to know the ref finally has a real element, so it
+  // never re-attaches listeners to it. State (via a callback ref) is.
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [queue, setQueue] = useState<Track[]>([]);
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -120,15 +125,15 @@ export function useQueue(token: string | null) {
   // always move forward even in repeat-one mode.
   const handleEnded = useCallback(() => {
     if (repeatRef.current === "one") {
-      const audio = audioRef.current;
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
+      if (audioElement) {
+        audioElement.currentTime = 0;
+        audioElement.play().catch(() => {});
       }
       return;
     }
     next();
-  }, [next]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [next, audioElement]);
 
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
   const cycleRepeat = useCallback(() => {
@@ -136,50 +141,53 @@ export function useQueue(token: string | null) {
   }, []);
 
   const togglePlay = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.paused) audio.play();
-    else audio.pause();
-  }, []);
+    if (!audioElement) return;
+    if (audioElement.paused) audioElement.play();
+    else audioElement.pause();
+  }, [audioElement]);
 
-  const seek = useCallback((seconds: number) => {
-    if (audioRef.current) audioRef.current.currentTime = seconds;
-  }, []);
+  const seek = useCallback(
+    (seconds: number) => {
+      if (audioElement) audioElement.currentTime = seconds;
+    },
+    [audioElement],
+  );
 
   // Load whatever track is now "current" into the <audio> element.
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !currentTrack) return;
+    if (!audioElement || !currentTrack) return;
     const url = streamUrl(currentTrack, token);
     if (!url) return;
-    audio.src = url;
-    audio.play().catch(() => {});
+    audioElement.src = url;
+    audioElement.play().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.id, token]);
+  }, [currentTrack?.id, token, audioElement]);
 
+  // Re-runs once audioElement actually becomes non-null (the fix: depending
+  // on the element itself, not a ref to it, so React knows to retry once
+  // the <audio> tag mounts for real past the auth gate).
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const onTime = () => setCurrentTime(audio.currentTime);
-    const onLoaded = () => setDuration(audio.duration || 0);
+    if (!audioElement) return;
+    const onTime = () => setCurrentTime(audioElement.currentTime);
+    const onLoaded = () => setDuration(audioElement.duration || 0);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
-    audio.addEventListener("timeupdate", onTime);
-    audio.addEventListener("loadedmetadata", onLoaded);
-    audio.addEventListener("ended", handleEnded);
-    audio.addEventListener("play", onPlay);
-    audio.addEventListener("pause", onPause);
+    audioElement.addEventListener("timeupdate", onTime);
+    audioElement.addEventListener("loadedmetadata", onLoaded);
+    audioElement.addEventListener("ended", handleEnded);
+    audioElement.addEventListener("play", onPlay);
+    audioElement.addEventListener("pause", onPause);
     return () => {
-      audio.removeEventListener("timeupdate", onTime);
-      audio.removeEventListener("loadedmetadata", onLoaded);
-      audio.removeEventListener("ended", handleEnded);
-      audio.removeEventListener("play", onPlay);
-      audio.removeEventListener("pause", onPause);
+      audioElement.removeEventListener("timeupdate", onTime);
+      audioElement.removeEventListener("loadedmetadata", onLoaded);
+      audioElement.removeEventListener("ended", handleEnded);
+      audioElement.removeEventListener("play", onPlay);
+      audioElement.removeEventListener("pause", onPause);
     };
-  }, [handleEnded]);
+  }, [audioElement, handleEnded]);
 
   return {
-    audioRef,
+    audioRef: setAudioElement,
     queue,
     currentTrack,
     isPlaying,

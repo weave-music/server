@@ -211,6 +211,21 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.like-button {
+  background: none;
+  border: none;
+  color: #999;
+  padding: 0.4rem;
+}
+
+.like-button svg {
+  margin: 0;
+}
+
+.like-button.liked {
+  color: #e74c3c;
+}
+
 .track-title {
   flex: 1;
   overflow: hidden;

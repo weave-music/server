@@ -11,6 +11,31 @@ export function streamUrl(track: Track, token: string | null): string | null {
   return `/api/stream?${params.toString()}`;
 }
 
+export async function fetchLikes(token: string): Promise<Track[]> {
+  const res = await fetch("/api/likes", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.results ?? [];
+}
+
+export async function likeTrack(token: string, track: Track): Promise<void> {
+  await fetch("/api/likes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(track),
+  });
+}
+
+export async function unlikeTrack(token: string, track: Track): Promise<void> {
+  const source = track.sources[0];
+  if (!source) return;
+  const params = new URLSearchParams({ provider: source.provider_id, ref: source.source_ref });
+  await fetch(`/api/likes?${params.toString()}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function searchTracks(query: string, token: string): Promise<Track[]> {
   const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
     headers: { Authorization: `Bearer ${token}` },

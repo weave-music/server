@@ -18,7 +18,7 @@ use sqlx::SqlitePool;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 use uuid::Uuid;
-use weave_core::{MediaProvider, SearchQuery};
+use weave_core::{MediaProvider, SearchQuery, Track, TrackSource};
 use weave_provider_local::LocalFilesystemProvider;
 use weave_provider_ytdlp::YtDlpProvider;
 
@@ -68,6 +68,7 @@ async fn main() {
         .route("/api/artist", get(artist_tracks))
         .route("/api/artist/releases", get(artist_releases))
         .route("/api/album", get(album_tracks))
+        .route("/api/likes", get(list_likes).post(like_track).delete(unlike_track))
         .route("/api/stream", get(stream))
         .with_state(state);
 
@@ -481,5 +482,104 @@ async fn stream(
             tracing::warn!(provider = params.provider, %err, "resolve failed");
             (StatusCode::NOT_FOUND, "could not resolve track").into_response()
         }
+    }
+}
+
+/// Likes are per-account, not per-browser (unlike playlists/history, which
+/// are still a client-side-only stopgap) — a track's `sources[0]` is its
+/// stable identity here, since `Track::id` is a fresh random uuid on every
+/// search/fetch.
+async fn like_track(State(state): State<AppState>, user: AuthUser, Json(track): Json<Track>) -> Response {
+    let Some(source) = track.sources.first() else {
+        return (StatusCode::BAD_REQUEST, "track has no source").into_response();
+    };
+    let result = sqlx::query(
+        "INSERT INTO liked_tracks (user_id, provider_id, source_ref, title, artist_name, album_name, artwork_url, duration_secs) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+         ON CONFLICT (user_id, provider_id, source_ref) DO NOTHING",
+    )
+    .bind(&user.id)
+    .bind(&source.provider_id)
+    .bind(&source.source_ref)
+    .bind(&track.title)
+    .bind(&track.artist_name)
+    .bind(&track.album_name)
+    .bind(&track.artwork_url)
+    .bind(track.duration_secs.map(|d| d as i64))
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not like track").into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct LikeParams {
+    provider: String,
+    #[serde(rename = "ref")]
+    source_ref: String,
+}
+
+async fn unlike_track(State(state): State<AppState>, user: AuthUser, Query(params): Query<LikeParams>) -> Response {
+    match sqlx::query("DELETE FROM liked_tracks WHERE user_id = ? AND provider_id = ? AND source_ref = ?")
+        .bind(&user.id)
+        .bind(&params.provider)
+        .bind(&params.source_ref)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not unlike track").into_response(),
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct LikedRow {
+    provider_id: String,
+    source_ref: String,
+    title: String,
+    artist_name: Option<String>,
+    album_name: Option<String>,
+    artwork_url: Option<String>,
+    duration_secs: Option<i64>,
+}
+
+async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
+    let rows: Result<Vec<LikedRow>, _> = sqlx::query_as(
+        "SELECT provider_id, source_ref, title, artist_name, album_name, artwork_url, duration_secs \
+         FROM liked_tracks WHERE user_id = ? ORDER BY liked_at DESC",
+    )
+    .bind(&user.id)
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rows) => {
+            let tracks: Vec<Track> = rows
+                .into_iter()
+                .map(|r| Track {
+                    id: Uuid::new_v4(),
+                    title: r.title,
+                    duration_secs: r.duration_secs.map(|d| d as u32),
+                    track_number: None,
+                    sources: vec![TrackSource {
+                        is_local: r.provider_id == "local",
+                        provider_id: r.provider_id,
+                        source_ref: r.source_ref,
+                        bitrate_kbps: None,
+                        is_lossless: false,
+                    }],
+                    artwork_url: r.artwork_url,
+                    artist_name: r.artist_name,
+                    artist_ref: None,
+                    album_name: r.album_name,
+                    album_ref: None,
+                })
+                .collect();
+            Json(serde_json::json!({ "results": tracks })).into_response()
+        }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not list likes").into_response(),
     }
 }
