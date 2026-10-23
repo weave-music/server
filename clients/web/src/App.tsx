@@ -34,6 +34,10 @@ export default function App() {
   const [jamPanelOpen, setJamPanelOpen] = useState(false);
   const queueApi = useQueue(token);
   const jamApi = useJam(token, queueApi);
+  // This device is a host-role member of an active jam but didn't start it
+  // — the regular player (not just the Jam panel's own controls) should
+  // drive the actual source device instead of this device's own queue.
+  const isRemote = !!jamApi.jam && !jamApi.isSource;
   const playlistApi = usePlaylists();
   const history = useListeningHistory();
   const likes = useLikes(token);
@@ -180,7 +184,14 @@ export default function App() {
           {tab === "admin" && me.is_admin && <AdminView token={token} selfId={me.id} />}
         </main>
 
-        <PlayerBar queueApi={queueApi} onExpand={() => setNowPlayingOpen(true)} />
+        <PlayerBar
+          queueApi={queueApi}
+          onExpand={() => setNowPlayingOpen(true)}
+          isRemote={isRemote}
+          onRemoteCommand={jamApi.sendCommand}
+          remoteVolume={jamApi.live?.volume}
+          remoteIsPlaying={jamApi.live?.is_playing}
+        />
 
         <nav className="app-nav-mobile">
           <NavTabs tab={tab} setTab={setTab} queueCount={queueApi.queue.length} isAdmin={me.is_admin} />
@@ -206,6 +217,10 @@ export default function App() {
             onStartJam={startJamFromMenu}
             jamActive={!!jamApi.jam}
             jamMemberCount={dedupeMembers(jamApi.members).length}
+            isRemote={isRemote}
+            onRemoteCommand={jamApi.sendCommand}
+            remoteVolume={jamApi.live?.volume}
+            remoteIsPlaying={jamApi.live?.is_playing}
           />
         )}
 

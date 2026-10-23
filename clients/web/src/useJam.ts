@@ -275,13 +275,20 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
 
   // Mirrors "now playing" + the real queue's tail for guests to watch —
   // pushed right away on track/play-state change, and every 5s otherwise
-  // (same cadence idea as the cross-device playback heartbeat). Every
-  // host-role device does this, not just the source — a remote's own
-  // queueApi mirrors the same account's cross-device playback state, so
-  // this is mostly redundant with the source's own heartbeat but harmless
-  // (jam_live is just overwritten with equivalent data either way).
+  // (same cadence idea as the cross-device playback heartbeat).
+  //
+  // ONLY the source pushes this. A remote's own queueApi.isPlaying does NOT
+  // reliably reflect the source's actual playback — the account-wide
+  // cross-device sync (useQueue.ts's handleRemoteEvent) only ever mirrors
+  // track/position, never is_playing, so a remote's queueApi.isPlaying stays
+  // false even while the source is actively playing. Letting every
+  // host-role device push here (as this used to) meant a remote's own
+  // (always-false) isPlaying would stomp jam_live right after it hydrated,
+  // which is exactly why a phone's Play/Pause button showed the wrong icon
+  // and why that same wrong is_playing then got echoed back as a bogus
+  // remote command.
   useEffect(() => {
-    if (!jam) return;
+    if (!jam || !jam.isSource) return;
     const activeJam = jam;
     function push() {
       const q = queueApiRef.current;

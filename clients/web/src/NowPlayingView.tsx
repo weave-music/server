@@ -17,6 +17,7 @@ import {
 } from "./icons";
 import { LikeButton } from "./LikeButton";
 import { TrackOverflowMenu } from "./TrackOverflowMenu";
+import type { RemoteCommandName } from "./jamApi";
 import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
 import type { useQueue } from "./useQueue";
@@ -38,6 +39,13 @@ interface Props {
   onStartJam: () => void;
   jamActive: boolean;
   jamMemberCount: number;
+  // Same remote-control plumbing as PlayerBar — see App.tsx.
+  isRemote?: boolean;
+  onRemoteCommand?: (command: RemoteCommandName, value?: number) => void;
+  remoteVolume?: number;
+  // See the same-named prop on PlayerBar — the account-wide cross-device
+  // sync never mirrors whether the OTHER device is playing, only track/position.
+  remoteIsPlaying?: boolean;
 }
 
 export function NowPlayingView({
@@ -53,10 +61,14 @@ export function NowPlayingView({
   onStartJam,
   jamActive,
   jamMemberCount,
+  isRemote,
+  onRemoteCommand,
+  remoteVolume,
+  remoteIsPlaying,
 }: Props) {
   const {
     currentTrack,
-    isPlaying,
+    isPlaying: localIsPlaying,
     currentTime,
     duration,
     shuffle,
@@ -68,6 +80,9 @@ export function NowPlayingView({
     toggleShuffle,
     cycleRepeat,
   } = queueApi;
+
+  const remote = isRemote && onRemoteCommand;
+  const isPlaying = remote ? !!remoteIsPlaying : localIsPlaying;
 
   if (!currentTrack) return null;
   const providerId = currentTrack.sources[0]?.provider_id;
@@ -137,34 +152,52 @@ export function NowPlayingView({
           )}
         </div>
 
-      <div className="now-playing-seek">
-        <input
-          type="range"
-          min={0}
-          max={duration || 0}
-          value={Math.min(currentTime, duration || 0)}
-          onChange={(e) => seek(Number(e.target.value))}
-        />
-        <div className="now-playing-times">
-          <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration)}</span>
+      {remote ? (
+        <div className="now-playing-seek now-playing-remote-volume">
+          <span>Volume</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={remoteVolume ?? 1}
+            onChange={(e) => onRemoteCommand("volume", Number(e.target.value))}
+          />
         </div>
-      </div>
+      ) : (
+        <div className="now-playing-seek">
+          <input
+            type="range"
+            min={0}
+            max={duration || 0}
+            value={Math.min(currentTime, duration || 0)}
+            onChange={(e) => seek(Number(e.target.value))}
+          />
+          <div className="now-playing-times">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
+          </div>
+        </div>
+      )}
 
       <div className="now-playing-transport">
-        <button className={shuffle ? "active" : ""} onClick={toggleShuffle} title="Shuffle">
+        <button className={shuffle ? "active" : ""} onClick={toggleShuffle} title="Shuffle" disabled={!!remote}>
           <ShuffleIcon />
         </button>
-        <button onClick={prev} title="Previous">
+        <button onClick={() => (remote ? onRemoteCommand("prev") : prev())} title="Previous">
           <SkipBackIcon />
         </button>
-        <button className="now-playing-play" onClick={togglePlay} title={isPlaying ? "Pause" : "Play"}>
+        <button
+          className="now-playing-play"
+          onClick={() => (remote ? onRemoteCommand(isPlaying ? "pause" : "play") : togglePlay())}
+          title={isPlaying ? "Pause" : "Play"}
+        >
           {isPlaying ? <PauseIcon /> : <PlayIcon />}
         </button>
-        <button onClick={next} title="Next">
+        <button onClick={() => (remote ? onRemoteCommand("next") : next())} title="Next">
           <SkipForwardIcon />
         </button>
-        <button className={repeat !== "off" ? "active" : ""} onClick={cycleRepeat} title="Repeat">
+        <button className={repeat !== "off" ? "active" : ""} onClick={cycleRepeat} title="Repeat" disabled={!!remote}>
           <RepeatIcon />
           {repeat === "one" && <span className="repeat-one-badge">1</span>}
         </button>

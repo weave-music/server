@@ -361,6 +361,11 @@ button:disabled {
   flex: 1;
 }
 
+.player-bar-remote-volume span {
+  font-size: 0.75rem;
+  color: #999;
+}
+
 .app-user {
   margin-left: auto;
   color: #999;
@@ -728,6 +733,17 @@ form label {
   font-size: 0.75rem;
   color: #999;
   margin-top: 0.25rem;
+}
+
+.now-playing-remote-volume {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.now-playing-remote-volume span {
+  font-size: 0.75rem;
+  color: #999;
 }
 
 .now-playing-transport {
