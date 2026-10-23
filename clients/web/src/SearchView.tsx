@@ -34,7 +34,7 @@ interface Props {
   onOpenDetail: (target: DetailTarget) => void;
   playlists: Playlist[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
-  onOpenJam: () => void;
+  onStartJam: () => void;
   jamActive: boolean;
 }
 
@@ -49,7 +49,7 @@ export function SearchView({
   onOpenDetail,
   playlists,
   onAddToPlaylist,
-  onOpenJam,
+  onStartJam,
   jamActive,
 }: Props) {
   const [query, setQuery] = useState("");
@@ -189,7 +189,7 @@ export function SearchView({
               onRadio={onRadio}
               onAddToPlaylist={onAddToPlaylist}
               onOpenDetail={onOpenDetail}
-              onOpenJam={onOpenJam}
+              onStartJam={onStartJam}
               jamActive={jamActive}
             />
           </TrackRow>

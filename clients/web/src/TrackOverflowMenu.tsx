@@ -12,7 +12,10 @@ interface Props {
   onRadio: (track: Track) => void;
   onAddToPlaylist: (playlistId: string, track: Track) => void;
   onOpenDetail: (target: DetailTarget) => void;
-  onOpenJam: () => void;
+  // Starts a jam immediately (if one isn't already running) and goes
+  // straight into the room — unlike the header's "Start a Jam" button,
+  // this skips the landing/CTA screen entirely.
+  onStartJam: () => void;
   jamActive: boolean;
 }
 
@@ -25,7 +28,7 @@ export function TrackOverflowMenu({
   onRadio,
   onAddToPlaylist,
   onOpenDetail,
-  onOpenJam,
+  onStartJam,
   jamActive,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -97,7 +100,7 @@ export function TrackOverflowMenu({
                 <button role="menuitem" onClick={() => act(() => onEnqueue(track))}>Add to queue</button>
                 <button role="menuitem" onClick={() => act(() => onShare(track))}>Share</button>
                 <button role="menuitem" onClick={() => act(() => onRadio(track))}>Start radio</button>
-                <button role="menuitem" onClick={() => act(onOpenJam)}>{jamActive ? "Jam" : "Start a Jam"}</button>
+                <button role="menuitem" onClick={() => act(onStartJam)}>{jamActive ? "Jam" : "Start a Jam"}</button>
                 <button role="menuitem" onClick={() => setChoosingPlaylist(true)}>Add to playlist</button>
                 {canViewArtist && (
                   <button

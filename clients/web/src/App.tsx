@@ -48,6 +48,23 @@ export default function App() {
   if (checking) return null;
   if (!token || !me) return <AuthView onLogin={login} onSetup={setup} onRegister={register} />;
 
+  // Both close whatever other full-screen overlay is open first — jam-room
+  // sits below Now Playing/Detail in z-index (so the player bar can show
+  // through it), so leaving one of those open would otherwise hide the
+  // jam panel this is meant to bring to the front.
+  function openJamPanel() {
+    setNowPlayingOpen(false);
+    setDetail(null);
+    setJamPanelOpen(true);
+  }
+
+  async function startJamFromMenu() {
+    setNowPlayingOpen(false);
+    setDetail(null);
+    if (!jamApi.jam) await jamApi.startJam();
+    setJamPanelOpen(true);
+  }
+
   async function startRadio(track: Track) {
     const more = await fetchRadio(token!, track);
     queueApi.playTracks([track, ...more]);
@@ -112,7 +129,7 @@ export default function App() {
           <nav className="app-nav-desktop">
             <NavTabs tab={tab} setTab={setTab} queueCount={queueApi.queue.length} isAdmin={me.is_admin} />
           </nav>
-          <button className="app-jam-button" onClick={() => setJamPanelOpen(true)} title="Weave Jam">
+          <button className="app-jam-button" onClick={openJamPanel} title="Weave Jam">
             <JamIcon /> {jamApi.jam ? "Jam" : "Start a Jam"}
           </button>
           <span className="app-user">
@@ -133,7 +150,7 @@ export default function App() {
               onOpenDetail={setDetail}
               playlists={playlistApi.playlists}
               onAddToPlaylist={playlistApi.addTrackToPlaylist}
-              onOpenJam={() => setJamPanelOpen(true)}
+              onStartJam={startJamFromMenu}
               jamActive={!!jamApi.jam}
             />
           )}
@@ -184,7 +201,8 @@ export default function App() {
             }}
             playlists={playlistApi.playlists}
             onAddToPlaylist={playlistApi.addTrackToPlaylist}
-            onOpenJam={() => setJamPanelOpen(true)}
+            onOpenJam={openJamPanel}
+            onStartJam={startJamFromMenu}
             jamActive={!!jamApi.jam}
             jamMemberCount={jamApi.members.length}
           />
@@ -209,7 +227,7 @@ export default function App() {
             playlists={playlistApi.playlists}
             onAddToPlaylist={playlistApi.addTrackToPlaylist}
             onCreatePlaylist={playlistApi.createPlaylist}
-            onOpenJam={() => setJamPanelOpen(true)}
+            onStartJam={startJamFromMenu}
             jamActive={!!jamApi.jam}
           />
         )}

@@ -30,7 +30,12 @@ interface Props {
   onOpenDetail: (target: DetailTarget) => void;
   playlists: Playlist[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
+  // Plain "go to the jam" — used by the active-jam banner below, which only
+  // ever shows once a jam already exists.
   onOpenJam: () => void;
+  // Starts a jam immediately (if needed) and skips straight to the room —
+  // used by this view's own "..." menu, same as every other track menu.
+  onStartJam: () => void;
   jamActive: boolean;
   jamMemberCount: number;
 }
@@ -45,6 +50,7 @@ export function NowPlayingView({
   playlists,
   onAddToPlaylist,
   onOpenJam,
+  onStartJam,
   jamActive,
   jamMemberCount,
 }: Props) {
@@ -84,7 +90,7 @@ export function NowPlayingView({
           onRadio={onRadio}
           onAddToPlaylist={onAddToPlaylist}
           onOpenDetail={onOpenDetail}
-          onOpenJam={onOpenJam}
+          onStartJam={onStartJam}
           jamActive={jamActive}
         />
       </div>

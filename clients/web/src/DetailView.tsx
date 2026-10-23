@@ -33,7 +33,7 @@ interface Props {
   playlists: Playlist[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
   onCreatePlaylist: (name: string, initialTracks?: Track[]) => void;
-  onOpenJam: () => void;
+  onStartJam: () => void;
   jamActive: boolean;
 }
 
@@ -71,7 +71,7 @@ export function DetailView({
   playlists,
   onAddToPlaylist,
   onCreatePlaylist,
-  onOpenJam,
+  onStartJam,
   jamActive,
 }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -153,7 +153,7 @@ export function DetailView({
           onRadio={onRadio}
           onAddToPlaylist={onAddToPlaylist}
           onOpenDetail={onOpenDetail}
-          onOpenJam={onOpenJam}
+          onStartJam={onStartJam}
           jamActive={jamActive}
         />
       </>

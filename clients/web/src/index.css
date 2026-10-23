@@ -1437,6 +1437,35 @@ form label {
   font-size: 0.95rem;
 }
 
+.jam-member-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.jam-member-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #1e1e1e;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.jam-member-host-badge {
+  background: #1db954;
+  color: #000;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+}
+
 /* Up Next + Recommended live in here — flex-wrap naturally puts them side
    by side once there's room for both at once, and stacks them on narrow
    screens without needing a separate breakpoint. */

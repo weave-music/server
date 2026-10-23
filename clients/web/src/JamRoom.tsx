@@ -147,6 +147,18 @@ export function JamRoom({
           )}
 
           <section className="jam-room-section">
+            <h3>Who's Here</h3>
+            <ul className="jam-member-list">
+              {members.map((member, i) => (
+                <li key={`${member.name}-${i}`} className="jam-member-chip">
+                  {member.name}
+                  {member.is_host && <span className="jam-member-host-badge">Host</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="jam-room-section">
             <h3>Now Playing</h3>
             {live?.now_playing ? (
               <div className="jam-now-playing">
