@@ -1530,6 +1530,28 @@ form label {
   white-space: nowrap;
 }
 
+.jam-remote-indicator {
+  color: #999;
+  font-size: 0.8rem;
+  margin: 0 0 0.5rem;
+}
+
+.jam-volume-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.jam-volume-control label {
+  color: #999;
+  font-size: 0.8rem;
+}
+
+.jam-volume-control input[type="range"] {
+  flex: 1;
+}
+
 .jam-room-search-form {
   margin-bottom: 0.75rem;
 }

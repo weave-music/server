@@ -244,7 +244,8 @@ export default function App() {
               ended={jamApi.ended}
               onAddTrack={jamApi.addTrack}
               isHost
-              onSkip={queueApi.sendSkipCommand}
+              onCommand={jamApi.sendCommand}
+              isSource={jamApi.isSource}
               joinUrl={jamApi.joinUrl}
               onEndJam={() => {
                 jamApi.endJam();

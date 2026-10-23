@@ -103,7 +103,6 @@ async fn main() {
         .route("/api/likes", get(list_likes).post(like_track).delete(unlike_track))
         .route("/api/stream", get(stream))
         .route("/api/playback", get(get_playback).post(update_playback))
-        .route("/api/playback/command", post(send_playback_command))
         .route("/api/playback/ws", get(playback_ws))
         .route("/api/jam", post(create_jam))
         .route("/api/jam/mine", get(my_active_jam))
@@ -111,6 +110,7 @@ async fn main() {
         .route("/api/jam/:id/state", get(jam_state))
         .route("/api/jam/:id/queue", post(add_jam_queue))
         .route("/api/jam/:id/playback", post(jam_playback))
+        .route("/api/jam/:id/command", post(jam_command))
         .route("/api/jam/:id/end", post(end_jam))
         .route("/api/jam/:id/recommendations", get(jam_recommendations))
         .route("/api/jam/:id/ws", get(jam_ws))
@@ -738,27 +738,20 @@ async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
 }
 
 /// Broadcast over `/api/playback/ws` whenever any device updates playback
-/// state, or asks another device to skip. `device_id` on `StateUpdate` lets
-/// a receiving client tell "this is an update I just sent myself" apart
-/// from "another device changed something". `Command` has no such check —
-/// routing a skip to "whichever device is actually playing" is exactly as
-/// correct whether that device sent the command itself (controlling its
-/// own jam-room view) or received it from elsewhere, since in steady state
-/// starting playback anywhere already pauses every other device.
+/// state. `device_id` lets a receiving client tell "this is an update I
+/// just sent myself" apart from "another device changed something", which
+/// is what lets it decide whether to pause itself or sync its displayed
+/// track. Jam remote-control commands (play/pause/skip/volume) travel over
+/// the jam-scoped ws instead — see RemoteCommand — since "who should act on
+/// this" is a jam concept (the designated source device) there, not a
+/// per-device heuristic.
 #[derive(Clone, Serialize)]
-#[serde(tag = "type")]
-enum PlaybackEvent {
-    StateUpdate { user_id: String, device_id: String, track: Track, position_secs: f64, is_playing: bool },
-    Command { user_id: String, device_id: String, command: String },
-}
-
-impl PlaybackEvent {
-    fn user_id(&self) -> &str {
-        match self {
-            PlaybackEvent::StateUpdate { user_id, .. } => user_id,
-            PlaybackEvent::Command { user_id, .. } => user_id,
-        }
-    }
+struct PlaybackEvent {
+    user_id: String,
+    device_id: String,
+    track: Track,
+    position_secs: f64,
+    is_playing: bool,
 }
 
 #[derive(Deserialize)]
@@ -810,7 +803,7 @@ async fn update_playback(State(state): State<AppState>, user: AuthUser, Json(bod
 
     // Best-effort: no subscribers (nobody else has this account open) is a
     // normal, non-error outcome, not something to report back to the caller.
-    let _ = state.playback_tx.send(PlaybackEvent::StateUpdate {
+    let _ = state.playback_tx.send(PlaybackEvent {
         user_id: user.id,
         device_id: body.device_id,
         track: body.track,
@@ -818,31 +811,6 @@ async fn update_playback(State(state): State<AppState>, user: AuthUser, Json(bod
         is_playing: body.is_playing,
     });
 
-    StatusCode::NO_CONTENT.into_response()
-}
-
-#[derive(Deserialize)]
-struct PlaybackCommandBody {
-    device_id: String,
-    command: String,
-}
-
-/// Lets one of an account's devices ask "whichever device is actually
-/// playing" to skip — e.g. a phone sitting in a jam, mirroring but not
-/// itself playing, tapping Next/Previous. Purely a fire-and-forget nudge
-/// over the same broadcast channel as playback state; no device-targeting
-/// happens server-side, each client decides for itself whether it's the
-/// one that should act (see the `isPlaying` check in useQueue.ts).
-async fn send_playback_command(
-    State(state): State<AppState>,
-    user: AuthUser,
-    Json(body): Json<PlaybackCommandBody>,
-) -> Response {
-    let _ = state.playback_tx.send(PlaybackEvent::Command {
-        user_id: user.id,
-        device_id: body.device_id,
-        command: body.command,
-    });
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -923,7 +891,7 @@ async fn handle_playback_ws(mut socket: WebSocket, mut rx: broadcast::Receiver<P
             Err(broadcast::error::RecvError::Lagged(_)) => continue,
             Err(broadcast::error::RecvError::Closed) => break,
         };
-        if event.user_id() != user_id {
+        if event.user_id != user_id {
             continue;
         }
         let Ok(json) = serde_json::to_string(&event) else { continue };
@@ -949,6 +917,7 @@ struct JamLive {
     position_secs: f64,
     is_playing: bool,
     upcoming: Vec<Track>,
+    volume: f64,
 }
 
 #[derive(Clone, Serialize)]
@@ -957,6 +926,12 @@ enum JamEvent {
     MemberJoined { jam_id: String, name: String },
     QueueAdded { jam_id: String, id: String, track: Track, added_by_name: String },
     PlaybackUpdated { jam_id: String, live: JamLive },
+    // Play/Pause/Next/Prev/Volume from a remote (any host-role device other
+    // than the source). Every host-role device receives this over the jam
+    // ws, but only the source device acts on it — same "the client decides
+    // for itself" pattern as the cross-device playback Command, just
+    // jam-scoped instead of account-scoped.
+    RemoteCommand { jam_id: String, command: String, value: Option<f64> },
     Ended { jam_id: String },
 }
 
@@ -966,6 +941,7 @@ impl JamEvent {
             JamEvent::MemberJoined { jam_id, .. } => jam_id,
             JamEvent::QueueAdded { jam_id, .. } => jam_id,
             JamEvent::PlaybackUpdated { jam_id, .. } => jam_id,
+            JamEvent::RemoteCommand { jam_id, .. } => jam_id,
             JamEvent::Ended { jam_id } => jam_id,
         }
     }
@@ -994,8 +970,12 @@ async fn create_jam(State(state): State<AppState>, user: AuthUser) -> Response {
             .await
             .unwrap_or(None);
 
-    let jam_id = match existing_jam_id {
-        Some(id) => id,
+    // Only the device whose call actually creates the jam_sessions row (as
+    // opposed to resuming one that already exists) is the source — every
+    // other host-role device, including ones that join later via this same
+    // endpoint, is a remote for the session's whole lifetime.
+    let (jam_id, is_source) = match existing_jam_id {
+        Some(id) => (id, false),
         None => {
             let mut id = generate_jam_code();
             for _ in 0..5 {
@@ -1018,15 +998,16 @@ async fn create_jam(State(state): State<AppState>, user: AuthUser) -> Response {
             {
                 return (StatusCode::INTERNAL_SERVER_ERROR, "could not create jam").into_response();
             }
-            id
+            (id, true)
         }
     };
 
     let token = generate_token();
-    if sqlx::query("INSERT INTO jam_members (token, jam_id, name, is_host) VALUES (?, ?, ?, 1)")
+    if sqlx::query("INSERT INTO jam_members (token, jam_id, name, is_host, is_source) VALUES (?, ?, ?, 1, ?)")
         .bind(&token)
         .bind(&jam_id)
         .bind(&user.username)
+        .bind(is_source)
         .execute(&state.db)
         .await
         .is_err()
@@ -1034,7 +1015,7 @@ async fn create_jam(State(state): State<AppState>, user: AuthUser) -> Response {
         return (StatusCode::INTERNAL_SERVER_ERROR, "could not create jam").into_response();
     }
 
-    Json(serde_json::json!({ "jam_id": jam_id, "token": token })).into_response()
+    Json(serde_json::json!({ "jam_id": jam_id, "token": token, "is_source": is_source })).into_response()
 }
 
 /// Lightweight presence check — does this account already have a jam
@@ -1191,6 +1172,12 @@ struct JamPlaybackBody {
     is_playing: bool,
     #[serde(default)]
     upcoming: Vec<Track>,
+    #[serde(default = "default_volume")]
+    volume: f64,
+}
+
+fn default_volume() -> f64 {
+    1.0
 }
 
 /// Host-only heartbeat mirroring what's actually playing, so guests' "now
@@ -1211,10 +1198,36 @@ async fn jam_playback(
         position_secs: body.position_secs,
         is_playing: body.is_playing,
         upcoming: body.upcoming,
+        volume: body.volume,
     };
     state.jam_live.lock().unwrap().insert(jam_id.clone(), live.clone());
     let _ = state.jam_tx.send(JamEvent::PlaybackUpdated { jam_id, live });
 
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+struct JamCommandBody {
+    command: String,
+    #[serde(default)]
+    value: Option<f64>,
+}
+
+/// Play/Pause/Next/Prev/Volume from a remote — any host-role device, same
+/// gate as the heartbeat/end-jam routes. Purely a fire-and-forget nudge
+/// over the jam ws; no server-side notion of "which device is the source"
+/// beyond the is_source flag each client already got back from create_jam,
+/// so there's nothing to look up here.
+async fn jam_command(
+    State(state): State<AppState>,
+    member: JamMember,
+    Path(jam_id): Path<String>,
+    Json(body): Json<JamCommandBody>,
+) -> Response {
+    if jam_id != member.jam_id || !member.is_host {
+        return (StatusCode::FORBIDDEN, "host only").into_response();
+    }
+    let _ = state.jam_tx.send(JamEvent::RemoteCommand { jam_id, command: body.command, value: body.value });
     StatusCode::NO_CONTENT.into_response()
 }
 

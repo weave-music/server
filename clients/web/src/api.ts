@@ -121,17 +121,6 @@ export function updatePlaybackState(
   }).catch(() => {});
 }
 
-// Asks "whichever of my devices is actually playing" to skip — e.g. from a
-// phone that's mirroring a jam but not itself playing. Fire-and-forget,
-// same reasoning as updatePlaybackState.
-export function sendPlaybackCommand(token: string, deviceId: string, command: "next" | "prev"): void {
-  fetch("/api/playback/command", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ device_id: deviceId, command }),
-  }).catch(() => {});
-}
-
 // Native WebSocket can't set an Authorization header, so auth travels as
 // ?token= here too (same reason streamUrl does it).
 export function playbackWsUrl(token: string): string {

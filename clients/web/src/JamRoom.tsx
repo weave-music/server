@@ -1,9 +1,9 @@
 import QRCode from "qrcode";
 import { useEffect, useMemo, useState } from "react";
 import { Artwork } from "./Artwork";
-import { ChevronDownIcon, SkipBackIcon, SkipForwardIcon } from "./icons";
+import { ChevronDownIcon, PauseIcon, PlayIcon, SkipBackIcon, SkipForwardIcon } from "./icons";
 import { searchTracks } from "./api";
-import { dedupeMembers, type JamLive, type JamMemberInfo, type JamQueueLogEntry } from "./jamApi";
+import { dedupeMembers, type JamLive, type JamMemberInfo, type JamQueueLogEntry, type RemoteCommandName } from "./jamApi";
 import type { Track } from "./types";
 
 interface Props {
@@ -20,10 +20,16 @@ interface Props {
   joinUrl?: string | null;
   onEndJam?: () => void;
   onClose?: () => void;
-  // Skip controls for host-role devices — e.g. a phone co-hosting the same
-  // account's jam can skip the track actually playing on the laptop. Omit
-  // (or leave nothing playing) and no controls render.
-  onSkip?: (direction: "next" | "prev") => void;
+  // Remote controls for host-role devices — e.g. a phone co-hosting the same
+  // account's jam can play/pause/skip/adjust volume on whichever device is
+  // actually the jam's audio source (see is_source in main.rs). Omit (or
+  // leave nothing playing) and no controls render.
+  onCommand?: (command: RemoteCommandName, value?: number) => void;
+  // Whether THIS device is the jam's audio source — purely cosmetic here
+  // (a small "acting as a remote" label), the real enforcement happens
+  // server-side/in useJam, which only ever acts on a RemoteCommand locally
+  // when this device is the source.
+  isSource?: boolean;
 }
 
 function sourceKey(track: Track): string | null {
@@ -55,7 +61,8 @@ export function JamRoom({
   joinUrl,
   onEndJam,
   onClose,
-  onSkip,
+  onCommand,
+  isSource,
 }: Props) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -166,6 +173,9 @@ export function JamRoom({
 
           <section className="jam-room-section">
             <h3>Now Playing</h3>
+            {isHost && onCommand && !isSource && (
+              <p className="jam-remote-indicator">Acting as a remote — controls the device that started this jam.</p>
+            )}
             {live?.now_playing ? (
               <div className="jam-now-playing">
                 <Artwork url={live.now_playing.artwork_url} size="md" alt="" />
@@ -175,12 +185,15 @@ export function JamRoom({
                     <div className="jam-now-playing-subtitle">{live.now_playing.artist_name}</div>
                   )}
                 </div>
-                {isHost && onSkip && (
+                {isHost && onCommand && (
                   <div className="jam-now-playing-controls">
-                    <button onClick={() => onSkip("prev")} title="Previous">
+                    <button onClick={() => onCommand("prev")} title="Previous">
                       <SkipBackIcon />
                     </button>
-                    <button onClick={() => onSkip("next")} title="Next">
+                    <button onClick={() => onCommand(live.is_playing ? "pause" : "play")} title={live.is_playing ? "Pause" : "Play"}>
+                      {live.is_playing ? <PauseIcon /> : <PlayIcon />}
+                    </button>
+                    <button onClick={() => onCommand("next")} title="Next">
                       <SkipForwardIcon />
                     </button>
                   </div>
@@ -188,6 +201,20 @@ export function JamRoom({
               </div>
             ) : (
               <p className="jam-room-empty">Nothing playing yet.</p>
+            )}
+            {isHost && onCommand && (
+              <div className="jam-volume-control">
+                <label htmlFor="jam-volume">Volume</label>
+                <input
+                  id="jam-volume"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={live?.volume ?? 1}
+                  onChange={(e) => onCommand("volume", parseFloat(e.target.value))}
+                />
+              </div>
             )}
           </section>
 

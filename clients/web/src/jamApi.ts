@@ -28,6 +28,7 @@ export interface JamLive {
   position_secs: number;
   is_playing: boolean;
   upcoming: Track[];
+  volume: number;
 }
 
 export interface JamState {
@@ -37,10 +38,13 @@ export interface JamState {
   live: JamLive | null;
 }
 
+export type RemoteCommandName = "play" | "pause" | "next" | "prev" | "volume";
+
 export type JamEvent =
   | { type: "MemberJoined"; jam_id: string; name: string }
   | { type: "QueueAdded"; jam_id: string; id: string; track: Track; added_by_name: string }
   | { type: "PlaybackUpdated"; jam_id: string; live: JamLive }
+  | { type: "RemoteCommand"; jam_id: string; command: RemoteCommandName; value: number | null }
   | { type: "Ended"; jam_id: string };
 
 // Starting a jam uses the caller's real login token — every other jam
@@ -49,10 +53,24 @@ export type JamEvent =
 // even when this account already has a jam running elsewhere — the server
 // resumes it (issuing this device its own host token for the same jam)
 // instead of ending it out from under whichever device started it.
-export async function createJam(loginToken: string): Promise<{ jam_id: string; token: string }> {
+// `is_source` is true only for the device whose call actually created the
+// jam — that device stays the real audio source for the jam's whole
+// lifetime; every other host-role device is a remote (see useJam.ts).
+export async function createJam(loginToken: string): Promise<{ jam_id: string; token: string; is_source: boolean }> {
   const res = await fetch("/api/jam", { method: "POST", headers: { Authorization: `Bearer ${loginToken}` } });
   if (!res.ok) throw new Error("Could not start jam.");
   return res.json();
+}
+
+// Fire-and-forget nudge to whichever device is this jam's source — see
+// RemoteCommand in auth.rs/main.rs for why no server-side targeting is
+// needed (every host-role device gets it, only the source acts on it).
+export function sendJamCommand(jamToken: string, jamId: string, command: RemoteCommandName, value?: number): void {
+  fetch(`/api/jam/${encodeURIComponent(jamId)}/command`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${jamToken}` },
+    body: JSON.stringify({ command, value }),
+  }).catch(() => {});
 }
 
 // Lightweight presence check for hydrating a newly-opened device into a
@@ -100,11 +118,12 @@ export function postJamPlayback(
   positionSecs: number,
   isPlaying: boolean,
   upcoming: Track[],
+  volume: number,
 ): void {
   fetch(`/api/jam/${encodeURIComponent(jamId)}/playback`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${jamToken}` },
-    body: JSON.stringify({ track, position_secs: positionSecs, is_playing: isPlaying, upcoming }),
+    body: JSON.stringify({ track, position_secs: positionSecs, is_playing: isPlaying, upcoming, volume }),
   }).catch(() => {});
 }
 
