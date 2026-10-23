@@ -6,6 +6,7 @@ import { DiscoverView } from "./DiscoverView";
 import { fetchRadio } from "./api";
 import { ChevronDownIcon, JamIcon } from "./icons";
 import { JamRoom } from "./JamRoom";
+import { dedupeMembers } from "./jamApi";
 import { LikesProvider } from "./LikesContext";
 import { NavTabs } from "./NavTabs";
 import { NowPlayingView } from "./NowPlayingView";
@@ -204,7 +205,7 @@ export default function App() {
             onOpenJam={openJamPanel}
             onStartJam={startJamFromMenu}
             jamActive={!!jamApi.jam}
-            jamMemberCount={jamApi.members.length}
+            jamMemberCount={dedupeMembers(jamApi.members).length}
           />
         )}
 

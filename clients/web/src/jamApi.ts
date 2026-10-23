@@ -5,6 +5,18 @@ export interface JamMemberInfo {
   is_host: boolean;
 }
 
+// The host can have more than one *device* in the member list (laptop +
+// phone co-hosting the same jam), but that's still just one person — collapse
+// every host row down to a single entry so "Who's Here" and the people
+// count reflect real people, not device/session count. Guests aren't
+// deduped: two distinct joins are two distinct people even if their chosen
+// names happen to collide.
+export function dedupeMembers(members: JamMemberInfo[]): JamMemberInfo[] {
+  const host = members.find((m) => m.is_host);
+  const guests = members.filter((m) => !m.is_host);
+  return host ? [host, ...guests] : guests;
+}
+
 export interface JamQueueLogEntry {
   id: string;
   track: Track;

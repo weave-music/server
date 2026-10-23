@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Artwork } from "./Artwork";
 import { ChevronDownIcon, SkipBackIcon, SkipForwardIcon } from "./icons";
 import { searchTracks } from "./api";
-import type { JamLive, JamMemberInfo, JamQueueLogEntry } from "./jamApi";
+import { dedupeMembers, type JamLive, type JamMemberInfo, type JamQueueLogEntry } from "./jamApi";
 import type { Track } from "./types";
 
 interface Props {
@@ -104,6 +104,7 @@ export function JamRoom({
   }
 
   const joinCode = joinUrl?.split("/").pop();
+  const displayMembers = useMemo(() => dedupeMembers(members), [members]);
 
   return (
     <div className="jam-room">
@@ -115,7 +116,7 @@ export function JamRoom({
         )}
         <span>{isHost ? "Your Jam" : "Weave Jam"}</span>
         <span className="jam-room-members">
-          {members.length} {members.length === 1 ? "person" : "people"}
+          {displayMembers.length} {displayMembers.length === 1 ? "person" : "people"}
         </span>
       </div>
 
@@ -154,7 +155,7 @@ export function JamRoom({
           <section className="jam-room-section">
             <h3>Who's Here</h3>
             <ul className="jam-member-list">
-              {members.map((member, i) => (
+              {displayMembers.map((member, i) => (
                 <li key={`${member.name}-${i}`} className="jam-member-chip">
                   {member.name}
                   {member.is_host && <span className="jam-member-host-badge">Host</span>}
