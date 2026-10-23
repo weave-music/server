@@ -1,7 +1,7 @@
 import QRCode from "qrcode";
 import { useEffect, useMemo, useState } from "react";
 import { Artwork } from "./Artwork";
-import { ChevronDownIcon } from "./icons";
+import { ChevronDownIcon, SkipBackIcon, SkipForwardIcon } from "./icons";
 import { searchTracks } from "./api";
 import type { JamLive, JamMemberInfo, JamQueueLogEntry } from "./jamApi";
 import type { Track } from "./types";
@@ -20,6 +20,10 @@ interface Props {
   joinUrl?: string | null;
   onEndJam?: () => void;
   onClose?: () => void;
+  // Skip controls for host-role devices — e.g. a phone co-hosting the same
+  // account's jam can skip the track actually playing on the laptop. Omit
+  // (or leave nothing playing) and no controls render.
+  onSkip?: (direction: "next" | "prev") => void;
 }
 
 function sourceKey(track: Track): string | null {
@@ -51,6 +55,7 @@ export function JamRoom({
   joinUrl,
   onEndJam,
   onClose,
+  onSkip,
 }: Props) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -169,6 +174,16 @@ export function JamRoom({
                     <div className="jam-now-playing-subtitle">{live.now_playing.artist_name}</div>
                   )}
                 </div>
+                {isHost && onSkip && (
+                  <div className="jam-now-playing-controls">
+                    <button onClick={() => onSkip("prev")} title="Previous">
+                      <SkipBackIcon />
+                    </button>
+                    <button onClick={() => onSkip("next")} title="Next">
+                      <SkipForwardIcon />
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="jam-room-empty">Nothing playing yet.</p>

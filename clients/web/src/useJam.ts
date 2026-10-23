@@ -14,6 +14,34 @@ import {
 import type { useQueue } from "./useQueue";
 import type { Track } from "./types";
 
+const HOST_MEMBERSHIP_KEY = "weave.jam-host";
+
+interface StoredHostMembership {
+  jamId: string;
+  token: string;
+}
+
+// Without this, every page reload minted a brand-new host member row via
+// createJam (it's safe to call repeatedly — see below — but always returns
+// a *fresh* token), so refreshing the host's own device repeatedly added
+// another "admin" to the jam's member list instead of reusing the same one.
+function loadHostMembership(): StoredHostMembership | null {
+  try {
+    const raw = localStorage.getItem(HOST_MEMBERSHIP_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveHostMembership(membership: StoredHostMembership) {
+  localStorage.setItem(HOST_MEMBERSHIP_KEY, JSON.stringify(membership));
+}
+
+function clearHostMembership() {
+  localStorage.removeItem(HOST_MEMBERSHIP_KEY);
+}
+
 // Shared by both the host panel and the guest room: fetches one snapshot,
 // then stays live over the jam's WebSocket. `onEvent` lets the host layer
 // (useJam, below) react to events too, without this hook needing to know
@@ -151,18 +179,28 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
 
   const viewer = useJamViewer(jam?.token ?? null, jam?.jamId ?? null, onJamEvent);
 
-  // On load, hydrate into a jam this account already has running on
-  // another device — without this, a second device has no way to know one
-  // exists, and tapping "Start a Jam" there used to silently end the one
-  // already running (create_jam now resumes it instead either way, but
-  // this is what makes it obviously-already-active here too).
+  // On load, hydrate into a jam this account already has running — either
+  // on this same device (reusing its own stored membership, so a refresh
+  // doesn't re-join as a fresh "admin" every time) or on another device
+  // (minting this device its own token once, then remembering it too).
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
-    fetchMyActiveJam(token).then((jamId) => {
-      if (cancelled || !jamId) return;
+    const stored = loadHostMembership();
+    fetchMyActiveJam(token).then((activeJamId) => {
+      if (cancelled) return;
+      if (!activeJamId) {
+        clearHostMembership();
+        return;
+      }
+      if (stored && stored.jamId === activeJamId) {
+        setJam({ jamId: stored.jamId, token: stored.token });
+        return;
+      }
       createJam(token).then(({ jam_id, token: jamToken }) => {
-        if (!cancelled) setJam({ jamId: jam_id, token: jamToken });
+        if (cancelled) return;
+        saveHostMembership({ jamId: jam_id, token: jamToken });
+        setJam({ jamId: jam_id, token: jamToken });
       });
     });
     return () => {
@@ -173,14 +211,23 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
   const startJam = useCallback(async () => {
     if (!token) return;
     const { jam_id, token: jamToken } = await createJam(token);
+    saveHostMembership({ jamId: jam_id, token: jamToken });
     setJam({ jamId: jam_id, token: jamToken });
   }, [token]);
 
   const endJam = useCallback(async () => {
     if (!jam) return;
     await endJamRequest(jam.token, jam.jamId);
+    clearHostMembership();
     setJam(null);
   }, [jam]);
+
+  // The jam ended from somewhere else (another host device, or it simply
+  // wound down) — drop the stored membership so the next load doesn't try
+  // to resume a dead jam.
+  useEffect(() => {
+    if (viewer.ended) clearHostMembership();
+  }, [viewer.ended]);
 
   // Mirrors "now playing" + the real queue's tail for guests to watch —
   // pushed right away on track/play-state change, and every 5s otherwise

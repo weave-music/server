@@ -103,6 +103,7 @@ async fn main() {
         .route("/api/likes", get(list_likes).post(like_track).delete(unlike_track))
         .route("/api/stream", get(stream))
         .route("/api/playback", get(get_playback).post(update_playback))
+        .route("/api/playback/command", post(send_playback_command))
         .route("/api/playback/ws", get(playback_ws))
         .route("/api/jam", post(create_jam))
         .route("/api/jam/mine", get(my_active_jam))
@@ -737,16 +738,27 @@ async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
 }
 
 /// Broadcast over `/api/playback/ws` whenever any device updates playback
-/// state. `device_id` lets a receiving client tell "this is an update I just
-/// sent myself" apart from "another device changed something", which is what
-/// lets it decide whether to pause itself or sync its displayed track.
+/// state, or asks another device to skip. `device_id` on `StateUpdate` lets
+/// a receiving client tell "this is an update I just sent myself" apart
+/// from "another device changed something". `Command` has no such check —
+/// routing a skip to "whichever device is actually playing" is exactly as
+/// correct whether that device sent the command itself (controlling its
+/// own jam-room view) or received it from elsewhere, since in steady state
+/// starting playback anywhere already pauses every other device.
 #[derive(Clone, Serialize)]
-struct PlaybackEvent {
-    user_id: String,
-    device_id: String,
-    track: Track,
-    position_secs: f64,
-    is_playing: bool,
+#[serde(tag = "type")]
+enum PlaybackEvent {
+    StateUpdate { user_id: String, device_id: String, track: Track, position_secs: f64, is_playing: bool },
+    Command { user_id: String, device_id: String, command: String },
+}
+
+impl PlaybackEvent {
+    fn user_id(&self) -> &str {
+        match self {
+            PlaybackEvent::StateUpdate { user_id, .. } => user_id,
+            PlaybackEvent::Command { user_id, .. } => user_id,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -798,7 +810,7 @@ async fn update_playback(State(state): State<AppState>, user: AuthUser, Json(bod
 
     // Best-effort: no subscribers (nobody else has this account open) is a
     // normal, non-error outcome, not something to report back to the caller.
-    let _ = state.playback_tx.send(PlaybackEvent {
+    let _ = state.playback_tx.send(PlaybackEvent::StateUpdate {
         user_id: user.id,
         device_id: body.device_id,
         track: body.track,
@@ -806,6 +818,31 @@ async fn update_playback(State(state): State<AppState>, user: AuthUser, Json(bod
         is_playing: body.is_playing,
     });
 
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+struct PlaybackCommandBody {
+    device_id: String,
+    command: String,
+}
+
+/// Lets one of an account's devices ask "whichever device is actually
+/// playing" to skip — e.g. a phone sitting in a jam, mirroring but not
+/// itself playing, tapping Next/Previous. Purely a fire-and-forget nudge
+/// over the same broadcast channel as playback state; no device-targeting
+/// happens server-side, each client decides for itself whether it's the
+/// one that should act (see the `isPlaying` check in useQueue.ts).
+async fn send_playback_command(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<PlaybackCommandBody>,
+) -> Response {
+    let _ = state.playback_tx.send(PlaybackEvent::Command {
+        user_id: user.id,
+        device_id: body.device_id,
+        command: body.command,
+    });
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -886,7 +923,7 @@ async fn handle_playback_ws(mut socket: WebSocket, mut rx: broadcast::Receiver<P
             Err(broadcast::error::RecvError::Lagged(_)) => continue,
             Err(broadcast::error::RecvError::Closed) => break,
         };
-        if event.user_id != user_id {
+        if event.user_id() != user_id {
             continue;
         }
         let Ok(json) = serde_json::to_string(&event) else { continue };

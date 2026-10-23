@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchPlaybackState, playbackWsUrl, streamUrl, updatePlaybackState } from "./api";
+import { fetchPlaybackState, playbackWsUrl, sendPlaybackCommand, streamUrl, updatePlaybackState } from "./api";
 import { getDeviceId } from "./deviceId";
 import type { Track } from "./types";
 
 export type RepeatMode = "off" | "all" | "one";
 
-interface PlaybackBroadcast {
-  device_id: string;
-  track: Track;
-  position_secs: number;
-  is_playing: boolean;
-}
+type PlaybackBroadcast =
+  | { type: "StateUpdate"; device_id: string; track: Track; position_secs: number; is_playing: boolean }
+  | { type: "Command"; device_id: string; command: "next" | "prev" };
 
 // Tracking "current" by track id rather than array index means reordering
 // or removing other queue entries never has to special-case shifting an
@@ -76,6 +73,11 @@ export function useQueue(token: string | null) {
   const pendingSeekRef = useRef<number | null>(null);
   const lastPushRef = useRef(0);
   const hydratedRef = useRef(false);
+  // Forward references to next/prev (defined further down) so the remote
+  // WS handler — defined up here, before they exist — can still call the
+  // latest version of them when a skip Command arrives.
+  const nextRef = useRef<() => void>(() => {});
+  const prevRef = useRef<() => void>(() => {});
 
   const pushPlaybackState = useCallback(
     (playing: boolean, opts?: { force?: boolean }) => {
@@ -95,6 +97,17 @@ export function useQueue(token: string | null) {
   // Another device's update, received live over the WebSocket below.
   const handleRemoteEvent = useCallback(
     (event: PlaybackBroadcast) => {
+      if (event.type === "Command") {
+        // No device_id self-check here on purpose — "whichever device is
+        // actually playing reacts" is correct whether this device sent the
+        // command itself (tapping Next in its own jam-room view) or
+        // received it from elsewhere, since at most one device is ever
+        // genuinely playing at a time.
+        if (!isPlayingRef.current) return;
+        if (event.command === "next") nextRef.current();
+        else prevRef.current();
+        return;
+      }
       if (event.device_id === deviceIdRef.current) return;
       if (event.is_playing && audioElement && !audioElement.paused) {
         suppressNextPushRef.current = true;
@@ -273,6 +286,25 @@ export function useQueue(token: string | null) {
       return q;
     });
   }, []);
+  useEffect(() => {
+    nextRef.current = next;
+  }, [next]);
+  useEffect(() => {
+    prevRef.current = prev;
+  }, [prev]);
+
+  // Asks "whichever device is actually playing" to skip — see the Command
+  // branch in handleRemoteEvent above. Always goes through the broadcast
+  // (even when this device is itself the one playing, its own socket gets
+  // its own broadcast back) rather than also calling next()/prev() here
+  // directly, so there's exactly one code path to reason about.
+  const sendSkipCommand = useCallback(
+    (direction: "next" | "prev") => {
+      if (!token) return;
+      sendPlaybackCommand(token, deviceIdRef.current, direction);
+    },
+    [token],
+  );
 
   // Separate from next(): when a track ends naturally, repeat-one replays
   // it instead of advancing — but the manual "skip" button should still
@@ -391,5 +423,6 @@ export function useQueue(token: string | null) {
     cycleRepeat,
     togglePlay,
     seek,
+    sendSkipCommand,
   };
 }

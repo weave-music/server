@@ -243,6 +243,7 @@ export default function App() {
               ended={jamApi.ended}
               onAddTrack={jamApi.addTrack}
               isHost
+              onSkip={queueApi.sendSkipCommand}
               joinUrl={jamApi.joinUrl}
               onEndJam={() => {
                 jamApi.endJam();
