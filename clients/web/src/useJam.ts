@@ -154,9 +154,13 @@ export function useJamViewer(jamToken: string | null, jamId: string | null, onEv
 }
 
 // Host side: starts/ends jams and is the only thing that ever calls
-// queueApi.enqueue in response to a jam event — the jam layer otherwise
-// knows nothing about playback order/shuffle/repeat, which stay entirely
-// owned by useQueue.
+// queueApi.enqueueQuiet in response to a jam event — the jam layer
+// otherwise knows nothing about playback order/shuffle/repeat, which stay
+// entirely owned by useQueue. enqueueQuiet (not enqueue) matters here: a
+// device that just hydrated into the jam and hasn't started playing
+// anything of its own must never autoplay off of a synced queue addition —
+// only the device someone actually hit play on should ever be the audio
+// source (see the comment on enqueueQuiet in useQueue.ts).
 export function useJam(token: string | null, queueApi: ReturnType<typeof useQueue>) {
   const [jam, setJam] = useState<{ jamId: string; token: string } | null>(null);
 
@@ -174,7 +178,7 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
     if (event.type !== "QueueAdded") return;
     if (enqueuedIdsRef.current.has(event.id)) return;
     enqueuedIdsRef.current.add(event.id);
-    queueApiRef.current.enqueue(event.track);
+    queueApiRef.current.enqueueQuiet(event.track);
   }, []);
 
   const viewer = useJamViewer(jam?.token ?? null, jam?.jamId ?? null, onJamEvent);

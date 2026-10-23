@@ -1,6 +1,7 @@
 /server/target/
 /clients/web/node_modules/
 /clients/web/dist/
+/clients/web/tsconfig.tsbuildinfo
 /clients/android/.gradle/
 /clients/android/build/
 .env

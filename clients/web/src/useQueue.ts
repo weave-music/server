@@ -210,6 +210,22 @@ export function useQueue(token: string | null) {
     setCurrentTrackId((id) => id ?? track.id);
   }, []);
 
+  // Same as enqueue, but if this device hasn't got anything "current" yet,
+  // never autoplay the track it ends up setting — used when a jam adds to
+  // this device's queue automatically (useJam), so a device that's just
+  // along for the ride (hasn't hydrated/started playing anything of its
+  // own) can't accidentally autoplay and, via the existing "only one
+  // device plays at a time" cross-device sync, steal playback away from
+  // whichever device is actually meant to be the jam's audio source.
+  const enqueueQuiet = useCallback((track: Track) => {
+    setQueue((q) => [...q, track]);
+    setCurrentTrackId((id) => {
+      if (id) return id;
+      autoplayNextLoadRef.current = false;
+      return track.id;
+    });
+  }, []);
+
   // Put a track directly after the one playing now. If nothing is playing,
   // this has the same useful behaviour as adding the first item to a queue.
   const enqueueNext = useCallback(
@@ -414,6 +430,7 @@ export function useQueue(token: string | null) {
     playTrack,
     playTracks,
     enqueue,
+    enqueueQuiet,
     enqueueNext,
     removeFromQueue,
     moveInQueue,

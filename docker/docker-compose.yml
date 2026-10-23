@@ -17,7 +17,10 @@ services:
       - /mnt/tank/files/projects/weave/clients/web:/app
     ports:
       - "5173:5173"
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    # Production build, not the dev server — vite's dev-mode React build is
+    # noticeably slower (unminified, no prod optimizations). Rebuild after
+    # editing source (npm run build) to pick up changes; this won't live-reload.
+    command: sh -c "npm install && npm run build && npm run preview"
     depends_on:
       - weave-server
     restart: unless-stopped
