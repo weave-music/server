@@ -112,6 +112,10 @@ pub struct JamMember {
     pub jam_id: String,
     pub name: String,
     pub is_host: bool,
+    // The account that started this jam — needed to look up that account's
+    // jam_settings (guest permissions) regardless of whether THIS member is
+    // the host or a guest.
+    pub host_user_id: String,
 }
 
 #[async_trait]
@@ -121,8 +125,8 @@ impl FromRequestParts<crate::AppState> for JamMember {
     async fn from_request_parts(parts: &mut Parts, state: &crate::AppState) -> Result<Self, Self::Rejection> {
         let token = extract_token(parts, state).await.ok_or((StatusCode::UNAUTHORIZED, "missing token"))?;
 
-        let row: (String, String, bool) = sqlx::query_as(
-            "SELECT jam_members.jam_id, jam_members.name, jam_members.is_host \
+        let row: (String, String, bool, String) = sqlx::query_as(
+            "SELECT jam_members.jam_id, jam_members.name, jam_members.is_host, jam_sessions.host_user_id \
              FROM jam_members JOIN jam_sessions ON jam_sessions.id = jam_members.jam_id \
              WHERE jam_members.token = ? AND jam_sessions.ended_at IS NULL",
         )
@@ -132,7 +136,7 @@ impl FromRequestParts<crate::AppState> for JamMember {
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error"))?
         .ok_or((StatusCode::UNAUTHORIZED, "invalid token or jam has ended"))?;
 
-        Ok(JamMember { token, jam_id: row.0, name: row.1, is_host: row.2 })
+        Ok(JamMember { token, jam_id: row.0, name: row.1, is_host: row.2, host_user_id: row.3 })
     }
 }
 
@@ -166,8 +170,8 @@ impl FromRequestParts<crate::AppState> for Searcher {
             return Ok(Searcher::Account(AuthUser { id: row.0, username: row.1, is_admin: row.2 }));
         }
 
-        let guest_row: Option<(String, String, bool)> = sqlx::query_as(
-            "SELECT jam_members.jam_id, jam_members.name, jam_members.is_host \
+        let guest_row: Option<(String, String, bool, String)> = sqlx::query_as(
+            "SELECT jam_members.jam_id, jam_members.name, jam_members.is_host, jam_sessions.host_user_id \
              FROM jam_members JOIN jam_sessions ON jam_sessions.id = jam_members.jam_id \
              WHERE jam_members.token = ? AND jam_sessions.ended_at IS NULL",
         )
@@ -176,7 +180,13 @@ impl FromRequestParts<crate::AppState> for Searcher {
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "db error"))?;
         if let Some(row) = guest_row {
-            return Ok(Searcher::Guest(JamMember { token, jam_id: row.0, name: row.1, is_host: row.2 }));
+            return Ok(Searcher::Guest(JamMember {
+                token,
+                jam_id: row.0,
+                name: row.1,
+                is_host: row.2,
+                host_user_id: row.3,
+            }));
         }
 
         Err((StatusCode::UNAUTHORIZED, "invalid or expired token"))

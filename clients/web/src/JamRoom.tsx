@@ -1,10 +1,19 @@
 import QRCode from "qrcode";
 import { useEffect, useMemo, useState } from "react";
 import { Artwork } from "./Artwork";
-import { ChevronDownIcon, PauseIcon, PlayIcon, SkipBackIcon, SkipForwardIcon } from "./icons";
+import { ChevronDownIcon, PauseIcon, PlayIcon, RepeatIcon, ShuffleIcon, SkipBackIcon, SkipForwardIcon } from "./icons";
 import { searchTracks } from "./api";
-import { dedupeMembers, type JamLive, type JamMemberInfo, type JamQueueLogEntry, type RemoteCommandName } from "./jamApi";
+import {
+  dedupeMembers,
+  repeatModeToNumber,
+  type JamLive,
+  type JamMemberInfo,
+  type JamQueueLogEntry,
+  type JamSettings,
+  type RemoteCommandName,
+} from "./jamApi";
 import type { Track } from "./types";
+import { nextRepeatMode } from "./useQueue";
 
 interface Props {
   // Login token for the host, jam-scoped token for a guest — either works
@@ -20,16 +29,25 @@ interface Props {
   joinUrl?: string | null;
   onEndJam?: () => void;
   onClose?: () => void;
-  // Remote controls for host-role devices — e.g. a phone co-hosting the same
-  // account's jam can play/pause/skip/adjust volume on whichever device is
-  // actually the jam's audio source (see is_source in main.rs). Omit (or
-  // leave nothing playing) and no controls render.
+  // Remote controls — host-role devices can always use these (e.g. a phone
+  // co-hosting the same account's jam controlling whichever device is the
+  // actual source, see is_source in main.rs); guests can too, but only for
+  // whatever `permissions` below allows.
   onCommand?: (command: RemoteCommandName, value?: number) => void;
   // Whether THIS device is the jam's audio source — purely cosmetic here
   // (a small "acting as a remote" label), the real enforcement happens
   // server-side/in useJam, which only ever acts on a RemoteCommand locally
   // when this device is the source.
   isSource?: boolean;
+  // What GUESTS are currently allowed to do — irrelevant for isHost (the
+  // account's own devices are never restricted by this). Comes from the
+  // jam_state response, which is itself account-settings-backed so it
+  // reflects the host's latest choice even mid-jam.
+  permissions?: JamSettings;
+  // Host-only: this account's persistent jam settings + a way to change
+  // them. Both undefined for guests (and simply not rendered).
+  settings?: JamSettings | null;
+  onUpdateSettings?: (next: JamSettings) => void;
 }
 
 function sourceKey(track: Track): string | null {
@@ -63,7 +81,16 @@ export function JamRoom({
   onClose,
   onCommand,
   isSource,
+  permissions,
+  settings,
+  onUpdateSettings,
 }: Props) {
+  // The account's own devices are never restricted by jam settings — those
+  // only ever gate a GUEST's requests (enforced server-side too; this is
+  // just so the guest UI doesn't offer controls that would 403).
+  const canControlPlayback = isHost || !!permissions?.guests_can_control_playback;
+  const canShuffleRepeat = isHost || !!permissions?.guests_can_shuffle_repeat;
+  const canAddQueue = isHost || !!permissions?.guests_can_add_queue;
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Track[]>([]);
@@ -185,7 +212,7 @@ export function JamRoom({
                     <div className="jam-now-playing-subtitle">{live.now_playing.artist_name}</div>
                   )}
                 </div>
-                {isHost && onCommand && (
+                {canControlPlayback && onCommand && (
                   <div className="jam-now-playing-controls">
                     <button onClick={() => onCommand("prev")} title="Previous">
                       <SkipBackIcon />
@@ -202,6 +229,25 @@ export function JamRoom({
             ) : (
               <p className="jam-room-empty">Nothing playing yet.</p>
             )}
+            {canShuffleRepeat && onCommand && (
+              <div className="jam-now-playing-controls jam-shuffle-repeat">
+                <button
+                  className={live?.shuffle ? "active" : ""}
+                  onClick={() => onCommand("shuffle", live?.shuffle ? 0 : 1)}
+                  title="Shuffle"
+                >
+                  <ShuffleIcon />
+                </button>
+                <button
+                  className={live && live.repeat !== "off" ? "active" : ""}
+                  onClick={() => onCommand("repeat", repeatModeToNumber(nextRepeatMode(live?.repeat ?? "off")))}
+                  title="Repeat"
+                >
+                  <RepeatIcon />
+                  {live?.repeat === "one" && <span className="repeat-one-badge">1</span>}
+                </button>
+              </div>
+            )}
             {isHost && onCommand && (
               <div className="jam-volume-control">
                 <label htmlFor="jam-volume">Volume</label>
@@ -217,6 +263,45 @@ export function JamRoom({
               </div>
             )}
           </section>
+
+          {isHost && settings && onUpdateSettings && (
+            <section className="jam-room-section">
+              <h3>Jam Settings</h3>
+              <p className="jam-room-empty">What guests (not your own devices) can do — saved for your next jam too.</p>
+              <ul className="jam-settings-list">
+                <li>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={settings.guests_can_add_queue}
+                      onChange={(e) => onUpdateSettings({ ...settings, guests_can_add_queue: e.target.checked })}
+                    />
+                    Guests can add songs to the queue
+                  </label>
+                </li>
+                <li>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={settings.guests_can_control_playback}
+                      onChange={(e) => onUpdateSettings({ ...settings, guests_can_control_playback: e.target.checked })}
+                    />
+                    Guests can play, pause, and skip
+                  </label>
+                </li>
+                <li>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={settings.guests_can_shuffle_repeat}
+                      onChange={(e) => onUpdateSettings({ ...settings, guests_can_shuffle_repeat: e.target.checked })}
+                    />
+                    Guests can shuffle and repeat
+                  </label>
+                </li>
+              </ul>
+            </section>
+          )}
 
           <div className="jam-room-columns">
             <section className="jam-room-section">
@@ -236,7 +321,7 @@ export function JamRoom({
               )}
             </section>
 
-            {recommendations.length > 0 && (
+            {canAddQueue && recommendations.length > 0 && (
               <section className="jam-room-section">
                 <h3>Recommended</h3>
                 <ul className="track-list">
@@ -254,33 +339,37 @@ export function JamRoom({
             )}
           </div>
 
-          <section className="jam-room-section">
-            <h3>Add a song</h3>
-            <form className="jam-room-search-form" onSubmit={runSearch}>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search your library and providers..."
-                aria-label="Search for a song to add"
-              />
-              <button type="submit" disabled={searching}>
-                {searching ? "Searching…" : "Search"}
-              </button>
-            </form>
-            {results.length > 0 && (
-              <ul className="track-list">
-                {results.map((track) =>
-                  trackRow(
-                    track,
-                    track.id,
-                    <button onClick={() => onAddTrack(track)} title="Add to jam">
-                      + Add
-                    </button>,
-                  ),
-                )}
-              </ul>
-            )}
-          </section>
+          {canAddQueue ? (
+            <section className="jam-room-section">
+              <h3>Add a song</h3>
+              <form className="jam-room-search-form" onSubmit={runSearch}>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search your library and providers..."
+                  aria-label="Search for a song to add"
+                />
+                <button type="submit" disabled={searching}>
+                  {searching ? "Searching…" : "Search"}
+                </button>
+              </form>
+              {results.length > 0 && (
+                <ul className="track-list">
+                  {results.map((track) =>
+                    trackRow(
+                      track,
+                      track.id,
+                      <button onClick={() => onAddTrack(track)} title="Add to jam">
+                        + Add
+                      </button>,
+                    ),
+                  )}
+                </ul>
+              )}
+            </section>
+          ) : (
+            !isHost && <p className="jam-room-empty">The host has turned off adding songs for guests.</p>
+          )}
         </>
       )}
     </div>

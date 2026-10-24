@@ -4,12 +4,16 @@ import {
   createJam,
   endJam as endJamRequest,
   fetchJamRecommendations,
+  fetchJamSettings,
   fetchJamState,
   fetchMyActiveJam,
   jamWsUrl,
+  numberToRepeatMode,
   postJamPlayback,
   sendJamCommand,
+  updateJamSettings,
   type JamEvent,
+  type JamSettings,
   type JamState,
   type RemoteCommandName,
 } from "./jamApi";
@@ -181,6 +185,24 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
     jamRef.current = jam;
   }, [jam]);
 
+  // Account-level, not per-jam — persists so a choice sticks the next time
+  // this account starts a jam (see jam_settings in main.rs). Any of the
+  // account's own devices can read/change this, not just whichever one
+  // happens to be the current jam's source.
+  const [settings, setSettings] = useState<JamSettings | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    fetchJamSettings(token).then(setSettings).catch(() => {});
+  }, [token]);
+  const updateSettings = useCallback(
+    async (next: JamSettings) => {
+      if (!token) return;
+      await updateJamSettings(token, next);
+      setSettings(next);
+    },
+    [token],
+  );
+
   const queueApiRef = useRef(queueApi);
   useEffect(() => {
     queueApiRef.current = queueApi;
@@ -216,6 +238,12 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
           break;
         case "volume":
           if (event.value != null) q.setVolume(event.value);
+          break;
+        case "shuffle":
+          q.setShuffle(event.value === 1);
+          break;
+        case "repeat":
+          q.setRepeat(numberToRepeatMode(event.value));
           break;
       }
     }
@@ -294,12 +322,22 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
       const q = queueApiRef.current;
       const idx = q.currentTrack ? q.queue.findIndex((t) => t.id === q.currentTrack!.id) : -1;
       const upcoming = idx >= 0 ? q.queue.slice(idx + 1) : [];
-      postJamPlayback(activeJam.token, activeJam.jamId, q.currentTrack, q.currentTime, q.isPlaying, upcoming, q.volume);
+      postJamPlayback(
+        activeJam.token,
+        activeJam.jamId,
+        q.currentTrack,
+        q.currentTime,
+        q.isPlaying,
+        upcoming,
+        q.volume,
+        q.shuffle,
+        q.repeat,
+      );
     }
     push();
     const interval = setInterval(push, 5000);
     return () => clearInterval(interval);
-  }, [jam, queueApi.currentTrack?.id, queueApi.isPlaying, queueApi.volume]);
+  }, [jam, queueApi.currentTrack?.id, queueApi.isPlaying, queueApi.volume, queueApi.shuffle, queueApi.repeat]);
 
   // Fire-and-forget nudge to the source — this device acts on it too if it
   // turns out to be the source (see the RemoteCommand branch above), since
@@ -325,5 +363,7 @@ export function useJam(token: string | null, queueApi: ReturnType<typeof useQueu
     endJam,
     addTrack: viewer.addTrack,
     sendCommand,
+    settings,
+    updateSettings,
   };
 }

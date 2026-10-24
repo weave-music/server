@@ -1,4 +1,29 @@
+import type { RepeatMode } from "./useQueue";
 import type { Track } from "./types";
+
+// Per-account defaults for what guests (not the account's own devices) may
+// do in any jam this account starts — see jam_settings in main.rs. Persists
+// across jams since it's keyed by account, not by jam session.
+export interface JamSettings {
+  guests_can_add_queue: boolean;
+  guests_can_control_playback: boolean;
+  guests_can_shuffle_repeat: boolean;
+}
+
+export async function fetchJamSettings(loginToken: string): Promise<JamSettings> {
+  const res = await fetch("/api/jam-settings", { headers: { Authorization: `Bearer ${loginToken}` } });
+  if (!res.ok) throw new Error("Could not load jam settings.");
+  return res.json();
+}
+
+export async function updateJamSettings(loginToken: string, settings: JamSettings): Promise<void> {
+  const res = await fetch("/api/jam-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${loginToken}` },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error("Could not save jam settings.");
+}
 
 export interface JamMemberInfo {
   name: string;
@@ -29,6 +54,8 @@ export interface JamLive {
   is_playing: boolean;
   upcoming: Track[];
   volume: number;
+  shuffle: boolean;
+  repeat: RepeatMode;
 }
 
 export interface JamState {
@@ -36,9 +63,22 @@ export interface JamState {
   members: JamMemberInfo[];
   queue_log: JamQueueLogEntry[];
   live: JamLive | null;
+  // What GUESTS (not the owner's own devices, which are never restricted)
+  // are currently allowed to do — see JamSettings in main.rs.
+  permissions: JamSettings;
 }
 
-export type RemoteCommandName = "play" | "pause" | "next" | "prev" | "volume";
+export type RemoteCommandName = "play" | "pause" | "next" | "prev" | "volume" | "shuffle" | "repeat";
+
+// RemoteCommand's value is a plain number (shared with volume), so repeat
+// mode travels as 0/1/2 rather than the string union useQueue uses locally.
+const REPEAT_MODES: RepeatMode[] = ["off", "all", "one"];
+export function repeatModeToNumber(mode: RepeatMode): number {
+  return REPEAT_MODES.indexOf(mode);
+}
+export function numberToRepeatMode(value: number | null | undefined): RepeatMode {
+  return REPEAT_MODES[value ?? 0] ?? "off";
+}
 
 export type JamEvent =
   | { type: "MemberJoined"; jam_id: string; name: string }
@@ -119,11 +159,21 @@ export function postJamPlayback(
   isPlaying: boolean,
   upcoming: Track[],
   volume: number,
+  shuffle: boolean,
+  repeat: RepeatMode,
 ): void {
   fetch(`/api/jam/${encodeURIComponent(jamId)}/playback`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${jamToken}` },
-    body: JSON.stringify({ track, position_secs: positionSecs, is_playing: isPlaying, upcoming, volume }),
+    body: JSON.stringify({
+      track,
+      position_secs: positionSecs,
+      is_playing: isPlaying,
+      upcoming,
+      volume,
+      shuffle,
+      repeat,
+    }),
   }).catch(() => {});
 }
 

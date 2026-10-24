@@ -70,6 +70,21 @@ export default function App() {
     setJamPanelOpen(true);
   }
 
+  // While acting as a jam remote, this device has nothing real to play
+  // locally — tapping a track in Discover should queue it on the actual
+  // source device instead of starting (nonexistent) local playback.
+  function playFromDiscover(tracks: Track[], startId?: string) {
+    if (isRemote) {
+      const track = (startId && tracks.find((t) => t.id === startId)) || tracks[0];
+      if (track) {
+        jamApi.addTrack(track);
+        setToast(`Added "${track.title}" to the jam queue`);
+      }
+      return;
+    }
+    queueApi.playTracks(tracks, startId);
+  }
+
   async function startRadio(track: Track) {
     const more = await fetchRadio(token!, track);
     queueApi.playTracks([track, ...more]);
@@ -160,7 +175,7 @@ export default function App() {
             />
           )}
           {tab === "discover" && (
-            <DiscoverView token={token} onPlay={queueApi.playTracks} playlists={playlistApi.playlists} historyVersion={history.version} onOpenDetail={(target) => setDetail(target)} />
+            <DiscoverView token={token} onPlay={playFromDiscover} playlists={playlistApi.playlists} historyVersion={history.version} onOpenDetail={(target) => setDetail(target)} />
           )}
           {tab === "queue" && (
             <QueueView
@@ -221,6 +236,8 @@ export default function App() {
             onRemoteCommand={jamApi.sendCommand}
             remoteVolume={jamApi.live?.volume}
             remoteIsPlaying={jamApi.live?.is_playing}
+            remoteShuffle={jamApi.live?.shuffle}
+            remoteRepeat={jamApi.live?.repeat}
           />
         )}
 
@@ -261,6 +278,8 @@ export default function App() {
               isHost
               onCommand={jamApi.sendCommand}
               isSource={jamApi.isSource}
+              settings={jamApi.settings}
+              onUpdateSettings={jamApi.updateSettings}
               joinUrl={jamApi.joinUrl}
               onEndJam={() => {
                 jamApi.endJam();

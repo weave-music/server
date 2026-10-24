@@ -104,6 +104,7 @@ async fn main() {
         .route("/api/stream", get(stream))
         .route("/api/playback", get(get_playback).post(update_playback))
         .route("/api/playback/ws", get(playback_ws))
+        .route("/api/jam-settings", get(get_jam_settings).put(update_jam_settings))
         .route("/api/jam", post(create_jam))
         .route("/api/jam/mine", get(my_active_jam))
         .route("/api/jam/:id/join", post(join_jam))
@@ -918,6 +919,72 @@ struct JamLive {
     is_playing: bool,
     upcoming: Vec<Track>,
     volume: f64,
+    shuffle: bool,
+    repeat: String,
+}
+
+/// Per-account defaults for what guests (not the account's own devices) may
+/// do in any jam this account starts — persisted so a choice sticks across
+/// jams, not just for the one currently running. The account's own devices
+/// (`JamMember::is_host`) are never subject to this; it only ever gates
+/// guest-initiated requests.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+struct JamSettings {
+    guests_can_add_queue: bool,
+    guests_can_control_playback: bool,
+    guests_can_shuffle_repeat: bool,
+}
+
+impl Default for JamSettings {
+    fn default() -> Self {
+        // Matches the jam feature's original behavior before settings
+        // existed: guests could add songs, nothing else.
+        Self { guests_can_add_queue: true, guests_can_control_playback: false, guests_can_shuffle_repeat: false }
+    }
+}
+
+async fn fetch_jam_settings(db: &SqlitePool, user_id: &str) -> JamSettings {
+    sqlx::query_as::<_, (bool, bool, bool)>(
+        "SELECT guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat \
+         FROM jam_settings WHERE user_id = ?",
+    )
+    .bind(user_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .map(|(guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat)| JamSettings {
+        guests_can_add_queue,
+        guests_can_control_playback,
+        guests_can_shuffle_repeat,
+    })
+    .unwrap_or_default()
+}
+
+async fn get_jam_settings(State(state): State<AppState>, user: AuthUser) -> Response {
+    Json(fetch_jam_settings(&state.db, &user.id).await).into_response()
+}
+
+async fn update_jam_settings(State(state): State<AppState>, user: AuthUser, Json(body): Json<JamSettings>) -> Response {
+    let result = sqlx::query(
+        "INSERT INTO jam_settings (user_id, guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat) \
+         VALUES (?, ?, ?, ?) \
+         ON CONFLICT(user_id) DO UPDATE SET \
+           guests_can_add_queue = excluded.guests_can_add_queue, \
+           guests_can_control_playback = excluded.guests_can_control_playback, \
+           guests_can_shuffle_repeat = excluded.guests_can_shuffle_repeat",
+    )
+    .bind(&user.id)
+    .bind(body.guests_can_add_queue)
+    .bind(body.guests_can_control_playback)
+    .bind(body.guests_can_shuffle_repeat)
+    .execute(&state.db)
+    .await;
+
+    if result.is_err() {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "could not save jam settings").into_response();
+    }
+    Json(body).into_response()
 }
 
 #[derive(Clone, Serialize)]
@@ -1115,9 +1182,16 @@ async fn jam_state(State(state): State<AppState>, member: JamMember) -> Response
         .collect();
 
     let live = state.jam_live.lock().unwrap().get(&member.jam_id).cloned();
+    let permissions = fetch_jam_settings(&state.db, &member.host_user_id).await;
 
-    Json(serde_json::json!({ "jam_id": member.jam_id, "members": members, "queue_log": queue_log, "live": live }))
-        .into_response()
+    Json(serde_json::json!({
+        "jam_id": member.jam_id,
+        "members": members,
+        "queue_log": queue_log,
+        "live": live,
+        "permissions": permissions,
+    }))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -1137,6 +1211,12 @@ async fn add_jam_queue(
 ) -> Response {
     if jam_id != member.jam_id {
         return (StatusCode::FORBIDDEN, "wrong jam").into_response();
+    }
+    if !member.is_host {
+        let settings = fetch_jam_settings(&state.db, &member.host_user_id).await;
+        if !settings.guests_can_add_queue {
+            return (StatusCode::FORBIDDEN, "the host has turned off adding songs for guests").into_response();
+        }
     }
     let Ok(track_json) = serde_json::to_string(&body.track) else {
         return (StatusCode::BAD_REQUEST, "invalid track").into_response();
@@ -1174,10 +1254,18 @@ struct JamPlaybackBody {
     upcoming: Vec<Track>,
     #[serde(default = "default_volume")]
     volume: f64,
+    #[serde(default)]
+    shuffle: bool,
+    #[serde(default = "default_repeat")]
+    repeat: String,
 }
 
 fn default_volume() -> f64 {
     1.0
+}
+
+fn default_repeat() -> String {
+    "off".to_string()
 }
 
 /// Host-only heartbeat mirroring what's actually playing, so guests' "now
@@ -1199,6 +1287,8 @@ async fn jam_playback(
         is_playing: body.is_playing,
         upcoming: body.upcoming,
         volume: body.volume,
+        shuffle: body.shuffle,
+        repeat: body.repeat,
     };
     state.jam_live.lock().unwrap().insert(jam_id.clone(), live.clone());
     let _ = state.jam_tx.send(JamEvent::PlaybackUpdated { jam_id, live });
@@ -1224,8 +1314,23 @@ async fn jam_command(
     Path(jam_id): Path<String>,
     Json(body): Json<JamCommandBody>,
 ) -> Response {
-    if jam_id != member.jam_id || !member.is_host {
-        return (StatusCode::FORBIDDEN, "host only").into_response();
+    if jam_id != member.jam_id {
+        return (StatusCode::FORBIDDEN, "wrong jam").into_response();
+    }
+    // The account's own devices (host-role) can always send any command —
+    // that's the laptop/phone remote-control case. A guest can only send
+    // the specific commands the host has opted to allow for guests; volume
+    // (and anything unrecognized) is never guest-allowed.
+    if !member.is_host {
+        let settings = fetch_jam_settings(&state.db, &member.host_user_id).await;
+        let allowed = match body.command.as_str() {
+            "play" | "pause" | "next" | "prev" => settings.guests_can_control_playback,
+            "shuffle" | "repeat" => settings.guests_can_shuffle_repeat,
+            _ => false,
+        };
+        if !allowed {
+            return (StatusCode::FORBIDDEN, "the host hasn't allowed guests to do that").into_response();
+        }
     }
     let _ = state.jam_tx.send(JamEvent::RemoteCommand { jam_id, command: body.command, value: body.value });
     StatusCode::NO_CONTENT.into_response()

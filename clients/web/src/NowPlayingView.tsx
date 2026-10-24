@@ -17,10 +17,10 @@ import {
 } from "./icons";
 import { LikeButton } from "./LikeButton";
 import { TrackOverflowMenu } from "./TrackOverflowMenu";
-import type { RemoteCommandName } from "./jamApi";
+import { repeatModeToNumber, type RemoteCommandName } from "./jamApi";
 import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
-import type { useQueue } from "./useQueue";
+import { nextRepeatMode, type RepeatMode, type useQueue } from "./useQueue";
 
 interface Props {
   queueApi: ReturnType<typeof useQueue>;
@@ -46,6 +46,8 @@ interface Props {
   // See the same-named prop on PlayerBar — the account-wide cross-device
   // sync never mirrors whether the OTHER device is playing, only track/position.
   remoteIsPlaying?: boolean;
+  remoteShuffle?: boolean;
+  remoteRepeat?: RepeatMode;
 }
 
 export function NowPlayingView({
@@ -65,14 +67,16 @@ export function NowPlayingView({
   onRemoteCommand,
   remoteVolume,
   remoteIsPlaying,
+  remoteShuffle,
+  remoteRepeat,
 }: Props) {
   const {
     currentTrack,
     isPlaying: localIsPlaying,
     currentTime,
     duration,
-    shuffle,
-    repeat,
+    shuffle: localShuffle,
+    repeat: localRepeat,
     togglePlay,
     next,
     prev,
@@ -83,6 +87,8 @@ export function NowPlayingView({
 
   const remote = isRemote && onRemoteCommand;
   const isPlaying = remote ? !!remoteIsPlaying : localIsPlaying;
+  const shuffle = remote ? !!remoteShuffle : localShuffle;
+  const repeat = remote ? remoteRepeat ?? "off" : localRepeat;
 
   if (!currentTrack) return null;
   const providerId = currentTrack.sources[0]?.provider_id;
@@ -181,7 +187,11 @@ export function NowPlayingView({
       )}
 
       <div className="now-playing-transport">
-        <button className={shuffle ? "active" : ""} onClick={toggleShuffle} title="Shuffle" disabled={!!remote}>
+        <button
+          className={shuffle ? "active" : ""}
+          onClick={() => (remote ? onRemoteCommand("shuffle", shuffle ? 0 : 1) : toggleShuffle())}
+          title="Shuffle"
+        >
           <ShuffleIcon />
         </button>
         <button onClick={() => (remote ? onRemoteCommand("prev") : prev())} title="Previous">
@@ -197,7 +207,11 @@ export function NowPlayingView({
         <button onClick={() => (remote ? onRemoteCommand("next") : next())} title="Next">
           <SkipForwardIcon />
         </button>
-        <button className={repeat !== "off" ? "active" : ""} onClick={cycleRepeat} title="Repeat" disabled={!!remote}>
+        <button
+          className={repeat !== "off" ? "active" : ""}
+          onClick={() => (remote ? onRemoteCommand("repeat", repeatModeToNumber(nextRepeatMode(repeat))) : cycleRepeat())}
+          title="Repeat"
+        >
           <RepeatIcon />
           {repeat === "one" && <span className="repeat-one-badge">1</span>}
         </button>

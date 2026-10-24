@@ -5,6 +5,10 @@ import type { Track } from "./types";
 
 export type RepeatMode = "off" | "all" | "one";
 
+export function nextRepeatMode(mode: RepeatMode): RepeatMode {
+  return mode === "off" ? "all" : mode === "all" ? "one" : "off";
+}
+
 interface PlaybackBroadcast {
   device_id: string;
   track: Track;
@@ -27,8 +31,8 @@ export function useQueue(token: string | null) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [shuffle, setShuffle] = useState(false);
-  const [repeat, setRepeat] = useState<RepeatMode>("off");
+  const [shuffle, setShuffleState] = useState(false);
+  const [repeat, setRepeatState] = useState<RepeatMode>("off");
   const [volume, setVolumeState] = useState(1);
 
   // Mirrors of the above for use inside stable callbacks (next/prev/ended
@@ -306,10 +310,14 @@ export function useQueue(token: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [next, audioElement]);
 
-  const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
-  const cycleRepeat = useCallback(() => {
-    setRepeat((r) => (r === "off" ? "all" : r === "all" ? "one" : "off"));
-  }, []);
+  const toggleShuffle = useCallback(() => setShuffleState((s) => !s), []);
+  const cycleRepeat = useCallback(() => setRepeatState(nextRepeatMode), []);
+
+  // Explicit (not toggling/cycling) setters — needed so a remote shuffle/
+  // repeat command applies an exact value regardless of this device's
+  // current state, same reasoning as explicit play()/pause() below.
+  const setShuffle = useCallback((value: boolean) => setShuffleState(value), []);
+  const setRepeat = useCallback((mode: RepeatMode) => setRepeatState(mode), []);
 
   // Explicit (not toggling) play/pause — needed so a remote "Pause" command
   // always pauses regardless of the source device's current state, instead
@@ -428,6 +436,8 @@ export function useQueue(token: string | null) {
     prev,
     toggleShuffle,
     cycleRepeat,
+    setShuffle,
+    setRepeat,
     play,
     pause,
     togglePlay,

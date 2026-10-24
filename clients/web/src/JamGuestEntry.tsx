@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { JamRoom } from "./JamRoom";
-import { joinJam } from "./jamApi";
+import { joinJam, sendJamCommand, type RemoteCommandName } from "./jamApi";
 import { useJamViewer } from "./useJam";
 
 interface Props {
@@ -36,6 +36,18 @@ export function JamGuestEntry({ code }: Props) {
   const { state, recommendations, ended, addTrack } = useJamViewer(
     membership?.token ?? null,
     membership ? code : null,
+  );
+
+  // Guests send remote commands with their own jam-scoped token, same as a
+  // host-role device — the server decides whether a given command is
+  // actually allowed for a guest (see jam_command in main.rs); the UI only
+  // offers controls that `state.permissions` says are allowed.
+  const sendCommand = useCallback(
+    (command: RemoteCommandName, value?: number) => {
+      if (!membership) return;
+      sendJamCommand(membership.token, code, command, value);
+    },
+    [membership, code],
   );
 
   async function join(e: React.FormEvent) {
@@ -82,6 +94,8 @@ export function JamGuestEntry({ code }: Props) {
       ended={ended}
       onAddTrack={addTrack}
       isHost={false}
+      onCommand={sendCommand}
+      permissions={state?.permissions}
     />
   );
 }
