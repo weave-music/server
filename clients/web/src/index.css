@@ -498,6 +498,14 @@ button:disabled {
   text-decoration: underline;
 }
 
+.auth-sso-button {
+  display: block;
+  text-decoration: none;
+  border: 1px solid #1db954;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+}
+
 form label {
   display: flex;
   align-items: center;
@@ -1643,4 +1651,12 @@ form label {
 
 .jam-guest-entry form {
   flex-direction: column;
+}
+
+.admin-settings-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1rem;
 }

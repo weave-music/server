@@ -1,4 +1,6 @@
 mod auth;
+mod lidarr;
+mod oidc;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path as FsPath, PathBuf};
@@ -45,6 +47,31 @@ struct AppState {
     /// anything while the host's browser (which owns the real queue) is
     /// open, so there's nothing worth surviving a server restart for.
     jam_live: Arc<Mutex<HashMap<String, JamLive>>>,
+    /// Shared, reused for every outbound call this server makes to another
+    /// HTTP service (Lidarr, an OIDC provider's discovery/token/JWKS
+    /// endpoints) — a fresh `reqwest::Client` per request would rebuild
+    /// its connection pool and TLS config every time for no benefit.
+    http: reqwest::Client,
+}
+
+/// Generic `settings` key/value store (see migrations/0002_settings.sql) —
+/// shared by the registration toggle, Lidarr config, and OIDC config.
+/// Every key this reads from must already have a row (seeded by a
+/// migration), since this returns `""` rather than erroring on a missing
+/// key — callers treat an empty string as "not configured".
+pub(crate) async fn get_setting(db: &SqlitePool, key: &str) -> String {
+    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
+        .bind(key)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+pub(crate) async fn set_setting(db: &SqlitePool, key: &str, value: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE settings SET value = ? WHERE key = ?").bind(value).bind(key).execute(db).await?;
+    Ok(())
 }
 
 impl AppState {
@@ -82,6 +109,7 @@ async fn main() {
         playback_tx,
         jam_tx,
         jam_live,
+        http: reqwest::Client::new(),
     };
 
     let app = Router::new()
@@ -90,6 +118,16 @@ async fn main() {
         .route("/api/auth/setup", get(setup_status).post(setup))
         .route("/api/auth/login", post(login))
         .route("/api/auth/register", post(register))
+        .route("/api/auth/oidc/status", get(oidc::oidc_status))
+        .route("/api/auth/oidc/login", get(oidc::oidc_login))
+        .route("/api/auth/oidc/callback", get(oidc::oidc_callback))
+        .route("/api/admin/oidc-settings", get(oidc::get_oidc_settings).put(oidc::put_oidc_settings))
+        .route("/api/admin/lidarr-settings", get(lidarr::get_lidarr_settings).put(lidarr::put_lidarr_settings))
+        .route("/api/admin/lidarr/root-folders", get(lidarr::lidarr_root_folders))
+        .route("/api/admin/lidarr/quality-profiles", get(lidarr::lidarr_quality_profiles))
+        .route("/api/lidarr/status", get(lidarr::lidarr_status))
+        .route("/api/lidarr/search", get(lidarr::lidarr_search))
+        .route("/api/lidarr/request", post(lidarr::lidarr_request_artist))
         .route("/api/settings/registration", get(get_registration_setting).put(set_registration_setting))
         .route("/api/users", get(list_users).post(create_user))
         .route("/api/users/:id", delete(delete_user))

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getRegistrationAllowed, getSetupComplete } from "./api";
+import { getOidcLoginEnabled, getRegistrationAllowed, getSetupComplete, oidcLoginUrl } from "./api";
 
 type Mode = "login" | "setup" | "register";
 
@@ -13,6 +13,7 @@ export function AuthView({ onLogin, onSetup, onRegister }: Props) {
   const [mode, setMode] = useState<Mode>("login");
   const [registrationAllowed, setRegistrationAllowed] = useState(false);
   const [setupComplete, setSetupComplete] = useState(true);
+  const [ssoEnabled, setSsoEnabled] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +22,7 @@ export function AuthView({ onLogin, onSetup, onRegister }: Props) {
   useEffect(() => {
     getRegistrationAllowed().then(setRegistrationAllowed);
     getSetupComplete().then(setSetupComplete);
+    getOidcLoginEnabled().then(setSsoEnabled);
   }, []);
 
   async function submit(e: React.FormEvent) {
@@ -62,6 +64,12 @@ export function AuthView({ onLogin, onSetup, onRegister }: Props) {
         </button>
       </form>
       {error && <p className="auth-error">{error}</p>}
+
+      {mode === "login" && ssoEnabled && (
+        <a className="auth-toggle auth-sso-button" href={oidcLoginUrl()}>
+          Log in with SSO
+        </a>
+      )}
 
       {mode === "login" && (
         <>

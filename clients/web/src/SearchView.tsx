@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { searchTracks } from "./api";
+import { getLidarrEnabled, requestLidarrArtist, searchLidarrArtists, searchTracks, type LidarrArtistResult } from "./api";
 import { Artwork } from "./Artwork";
 import type { DetailTarget } from "./DetailView";
 import { EntityCard } from "./EntityCard";
@@ -64,6 +64,42 @@ export function SearchView({
   // Guards against a slower, earlier request's response landing after a
   // faster, more recent one — only the latest keystroke's result sticks.
   const suggestionRequestRef = useRef(0);
+
+  const [lidarrEnabled, setLidarrEnabled] = useState(false);
+  const [lidarrResults, setLidarrResults] = useState<LidarrArtistResult[] | null>(null);
+  const [lidarrSearching, setLidarrSearching] = useState(false);
+  const [lidarrRequested, setLidarrRequested] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    getLidarrEnabled(token).then(setLidarrEnabled);
+  }, [token]);
+
+  // Reset any previous Lidarr lookup once the committed search changes —
+  // otherwise a stale "artists found for the last query" list would hang
+  // around under a completely different search term.
+  useEffect(() => {
+    setLidarrResults(null);
+  }, [committedQuery]);
+
+  async function searchLidarr() {
+    if (!committedQuery) return;
+    setLidarrSearching(true);
+    try {
+      setLidarrResults(await searchLidarrArtists(token, committedQuery));
+    } finally {
+      setLidarrSearching(false);
+    }
+  }
+
+  async function requestArtist(artist: LidarrArtistResult) {
+    try {
+      await requestLidarrArtist(token, artist.foreignArtistId, artist.artistName);
+      setLidarrRequested((prev) => new Set(prev).add(artist.foreignArtistId));
+    } catch {
+      // Surfaced via the button staying in its "Request" state — the user
+      // can just try again, same as any other fire-and-forget action here.
+    }
+  }
 
   // Live typeahead: a handful of real track matches as you type, separate
   // from the committed full-results list below (which only updates on
@@ -424,6 +460,41 @@ export function SearchView({
         <ul className="entity-list">
           {matchingPlaylists.map((pl) => playlistButton(pl.id, pl.name, pl.tracks))}
         </ul>
+      )}
+
+      {lidarrEnabled && committedQuery && (tab === "all" || tab === "songs") && (
+        <section className="home-row lidarr-request-row">
+          <div className="home-row-heading">
+            <h3>Can't find it?</h3>
+          </div>
+          {lidarrResults === null ? (
+            <button type="button" onClick={searchLidarr} disabled={lidarrSearching}>
+              {lidarrSearching ? "Searching Lidarr…" : `Search Lidarr for "${committedQuery}"`}
+            </button>
+          ) : lidarrResults.length === 0 ? (
+            <p className="jam-room-empty">Lidarr found no matching artists.</p>
+          ) : (
+            <ul className="track-list">
+              {lidarrResults.map((artist) => {
+                const requested = lidarrRequested.has(artist.foreignArtistId);
+                const cover = artist.images?.find((i) => i.coverType === "poster" || i.coverType === "fanart");
+                return (
+                  <li key={artist.foreignArtistId}>
+                    <div className="track-main">
+                      <Artwork url={cover?.remoteUrl ?? cover?.url ?? null} alt="" />
+                      <span className="track-title">{artist.artistName}</span>
+                    </div>
+                    <div className="track-actions">
+                      <button type="button" onClick={() => requestArtist(artist)} disabled={requested}>
+                        {requested ? "Requested" : "Request"}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       )}
     </section>
   );

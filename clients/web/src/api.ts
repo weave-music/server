@@ -151,6 +151,122 @@ export async function setRegistrationAllowed(token: string, allow: boolean): Pro
   if (!res.ok) throw new Error("Could not update setting.");
 }
 
+export async function getOidcLoginEnabled(): Promise<boolean> {
+  const res = await fetch("/api/auth/oidc/status");
+  if (!res.ok) return false;
+  const data = await res.json();
+  return !!data.enabled;
+}
+
+// Native navigation, not fetch — this needs to be a real top-level redirect
+// (the IdP's login page, not a response this page's JS can read).
+export function oidcLoginUrl(): string {
+  return "/api/auth/oidc/login";
+}
+
+export interface OidcSettings {
+  issuer: string;
+  client_id: string;
+  has_client_secret: boolean;
+}
+
+export async function getOidcSettings(token: string): Promise<OidcSettings> {
+  const res = await fetch("/api/admin/oidc-settings", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error("Could not load SSO settings.");
+  return res.json();
+}
+
+export async function setOidcSettings(
+  token: string,
+  settings: { issuer: string; client_id: string; client_secret?: string },
+): Promise<void> {
+  const res = await fetch("/api/admin/oidc-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error("Could not save SSO settings.");
+}
+
+export interface LidarrSettings {
+  url: string;
+  has_api_key: boolean;
+  root_folder: string;
+  quality_profile_id: number | null;
+}
+
+export async function getLidarrSettings(token: string): Promise<LidarrSettings> {
+  const res = await fetch("/api/admin/lidarr-settings", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error("Could not load Lidarr settings.");
+  return res.json();
+}
+
+export async function setLidarrSettings(
+  token: string,
+  settings: { url: string; api_key?: string; root_folder: string; quality_profile_id: number | null },
+): Promise<void> {
+  const res = await fetch("/api/admin/lidarr-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error("Could not save Lidarr settings.");
+}
+
+export interface LidarrRootFolder {
+  id: number;
+  path: string;
+}
+
+export interface LidarrQualityProfile {
+  id: number;
+  name: string;
+}
+
+export async function getLidarrRootFolders(token: string): Promise<LidarrRootFolder[]> {
+  const res = await fetch("/api/admin/lidarr/root-folders", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error("Could not reach Lidarr — check the URL and API key.");
+  return res.json();
+}
+
+export async function getLidarrQualityProfiles(token: string): Promise<LidarrQualityProfile[]> {
+  const res = await fetch("/api/admin/lidarr/quality-profiles", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error("Could not reach Lidarr — check the URL and API key.");
+  return res.json();
+}
+
+export async function getLidarrEnabled(token: string): Promise<boolean> {
+  const res = await fetch("/api/lidarr/status", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return false;
+  const data = await res.json();
+  return !!data.enabled;
+}
+
+export interface LidarrArtistResult {
+  artistName: string;
+  foreignArtistId: string;
+  overview?: string;
+  remoteCoverUrl?: string;
+  images?: { coverType: string; remoteUrl?: string; url?: string }[];
+}
+
+export async function searchLidarrArtists(token: string, query: string): Promise<LidarrArtistResult[]> {
+  const res = await fetch(`/api/lidarr/search?q=${encodeURIComponent(query)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function requestLidarrArtist(token: string, foreignArtistId: string, artistName: string): Promise<void> {
+  const res = await fetch("/api/lidarr/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ foreign_artist_id: foreignArtistId, artist_name: artistName }),
+  });
+  if (!res.ok) throw new Error("Lidarr rejected the request.");
+}
+
 export interface UserInfo {
   id: string;
   username: string;

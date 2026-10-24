@@ -8,8 +8,23 @@ interface Me {
   is_admin: boolean;
 }
 
+// A successful SSO login redirects back here as `/?token=...` (see
+// oidc_callback in main.rs) — adopt it into normal token storage and strip
+// it from the URL immediately so it doesn't linger in history/bookmarks.
+function adoptTokenFromUrl(): string | null {
+  const params = new URLSearchParams(location.search);
+  const token = params.get("token");
+  if (!token) return null;
+  localStorage.setItem(STORAGE_KEY, token);
+  params.delete("token");
+  const url = new URL(location.href);
+  url.search = params.toString();
+  history.replaceState(null, "", url.toString());
+  return token;
+}
+
 export function useAuth() {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY));
+  const [token, setToken] = useState<string | null>(() => adoptTokenFromUrl() ?? localStorage.getItem(STORAGE_KEY));
   const [me, setMe] = useState<Me | null>(null);
   const [checking, setChecking] = useState(true);
 
