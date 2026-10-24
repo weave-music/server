@@ -8,6 +8,9 @@ export interface JamSettings {
   guests_can_add_queue: boolean;
   guests_can_control_playback: boolean;
   guests_can_shuffle_repeat: boolean;
+  // Auto-end the jam after this many minutes with no activity (join, queue
+  // add, remote command, or actual playback) — 0 means never.
+  inactivity_timeout_minutes: number;
 }
 
 export async function fetchJamSettings(loginToken: string): Promise<JamSettings> {

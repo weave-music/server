@@ -112,6 +112,17 @@ async fn main() {
         http: reqwest::Client::new(),
     };
 
+    {
+        let sweep_state = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                sweep_inactive_jams(&sweep_state).await;
+            }
+        });
+    }
+
     let app = Router::new()
         .route("/health", get(health))
         .route("/rest/ping.view", get(subsonic_ping))
@@ -971,19 +982,30 @@ struct JamSettings {
     guests_can_add_queue: bool,
     guests_can_control_playback: bool,
     guests_can_shuffle_repeat: bool,
+    /// Auto-end a jam after this many minutes with no activity — 0 means
+    /// never. Checked by `sweep_inactive_jams` against `jam_sessions.last_active_at`.
+    inactivity_timeout_minutes: i64,
 }
 
+// This default (60) is duplicated in the COALESCE in sweep_inactive_jams'
+// query, for accounts that have never saved a jam_settings row at all —
+// keep both in sync if this ever changes.
 impl Default for JamSettings {
     fn default() -> Self {
         // Matches the jam feature's original behavior before settings
         // existed: guests could add songs, nothing else.
-        Self { guests_can_add_queue: true, guests_can_control_playback: false, guests_can_shuffle_repeat: false }
+        Self {
+            guests_can_add_queue: true,
+            guests_can_control_playback: false,
+            guests_can_shuffle_repeat: false,
+            inactivity_timeout_minutes: 60,
+        }
     }
 }
 
 async fn fetch_jam_settings(db: &SqlitePool, user_id: &str) -> JamSettings {
-    sqlx::query_as::<_, (bool, bool, bool)>(
-        "SELECT guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat \
+    sqlx::query_as::<_, (bool, bool, bool, i64)>(
+        "SELECT guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat, inactivity_timeout_minutes \
          FROM jam_settings WHERE user_id = ?",
     )
     .bind(user_id)
@@ -991,10 +1013,8 @@ async fn fetch_jam_settings(db: &SqlitePool, user_id: &str) -> JamSettings {
     .await
     .ok()
     .flatten()
-    .map(|(guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat)| JamSettings {
-        guests_can_add_queue,
-        guests_can_control_playback,
-        guests_can_shuffle_repeat,
+    .map(|(guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat, inactivity_timeout_minutes)| {
+        JamSettings { guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat, inactivity_timeout_minutes }
     })
     .unwrap_or_default()
 }
@@ -1005,17 +1025,19 @@ async fn get_jam_settings(State(state): State<AppState>, user: AuthUser) -> Resp
 
 async fn update_jam_settings(State(state): State<AppState>, user: AuthUser, Json(body): Json<JamSettings>) -> Response {
     let result = sqlx::query(
-        "INSERT INTO jam_settings (user_id, guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat) \
-         VALUES (?, ?, ?, ?) \
+        "INSERT INTO jam_settings (user_id, guests_can_add_queue, guests_can_control_playback, guests_can_shuffle_repeat, inactivity_timeout_minutes) \
+         VALUES (?, ?, ?, ?, ?) \
          ON CONFLICT(user_id) DO UPDATE SET \
            guests_can_add_queue = excluded.guests_can_add_queue, \
            guests_can_control_playback = excluded.guests_can_control_playback, \
-           guests_can_shuffle_repeat = excluded.guests_can_shuffle_repeat",
+           guests_can_shuffle_repeat = excluded.guests_can_shuffle_repeat, \
+           inactivity_timeout_minutes = excluded.inactivity_timeout_minutes",
     )
     .bind(&user.id)
     .bind(body.guests_can_add_queue)
     .bind(body.guests_can_control_playback)
     .bind(body.guests_can_shuffle_repeat)
+    .bind(body.inactivity_timeout_minutes)
     .execute(&state.db)
     .await;
 
@@ -1023,6 +1045,40 @@ async fn update_jam_settings(State(state): State<AppState>, user: AuthUser, Json
         return (StatusCode::INTERNAL_SERVER_ERROR, "could not save jam settings").into_response();
     }
     Json(body).into_response()
+}
+
+/// Marks a jam as having just seen real activity (join, queue add, remote
+/// command, or actual playback) — compared against the account's
+/// `inactivity_timeout_minutes` by the periodic sweep below. Deliberately
+/// NOT touched by every heartbeat: a paused jam left open shouldn't look
+/// "active" forever just because the source tab is still sending its
+/// regular `is_playing: false` heartbeat.
+async fn touch_jam_activity(db: &SqlitePool, jam_id: &str) {
+    let _ = sqlx::query("UPDATE jam_sessions SET last_active_at = datetime('now') WHERE id = ?").bind(jam_id).execute(db).await;
+}
+
+/// Ends any jam whose account-configured inactivity window has elapsed
+/// since its last real activity. Runs on a fixed interval from `main()`
+/// rather than per-request, since "is this jam idle" isn't something any
+/// single request is well-placed to check.
+async fn sweep_inactive_jams(state: &AppState) {
+    let jam_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT jam_sessions.id FROM jam_sessions \
+         LEFT JOIN jam_settings ON jam_settings.user_id = jam_sessions.host_user_id \
+         WHERE jam_sessions.ended_at IS NULL \
+           AND COALESCE(jam_settings.inactivity_timeout_minutes, 60) > 0 \
+           AND jam_sessions.last_active_at IS NOT NULL \
+           AND jam_sessions.last_active_at <= datetime('now', '-' || COALESCE(jam_settings.inactivity_timeout_minutes, 60) || ' minutes')",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    for jam_id in jam_ids {
+        let _ = sqlx::query("UPDATE jam_sessions SET ended_at = datetime('now') WHERE id = ?").bind(&jam_id).execute(&state.db).await;
+        state.jam_live.lock().unwrap().remove(&jam_id);
+        let _ = state.jam_tx.send(JamEvent::Ended { jam_id });
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -1094,7 +1150,7 @@ async fn create_jam(State(state): State<AppState>, user: AuthUser) -> Response {
                 }
                 id = generate_jam_code();
             }
-            if sqlx::query("INSERT INTO jam_sessions (id, host_user_id) VALUES (?, ?)")
+            if sqlx::query("INSERT INTO jam_sessions (id, host_user_id, last_active_at) VALUES (?, ?, datetime('now'))")
                 .bind(&id)
                 .bind(&user.id)
                 .execute(&state.db)
@@ -1106,6 +1162,7 @@ async fn create_jam(State(state): State<AppState>, user: AuthUser) -> Response {
             (id, true)
         }
     };
+    touch_jam_activity(&state.db, &jam_id).await;
 
     let token = generate_token();
     if sqlx::query("INSERT INTO jam_members (token, jam_id, name, is_host, is_source) VALUES (?, ?, ?, 1, ?)")
@@ -1175,6 +1232,7 @@ async fn join_jam(State(state): State<AppState>, Path(jam_id): Path<String>, Jso
         return (StatusCode::INTERNAL_SERVER_ERROR, "could not join jam").into_response();
     }
 
+    touch_jam_activity(&state.db, &jam_id).await;
     let _ = state.jam_tx.send(JamEvent::MemberJoined { jam_id: jam_id.clone(), name: name.to_string() });
 
     Json(serde_json::json!({ "jam_id": jam_id, "token": token, "name": name })).into_response()
@@ -1273,6 +1331,7 @@ async fn add_jam_queue(
         return (StatusCode::INTERNAL_SERVER_ERROR, "could not add to queue").into_response();
     }
 
+    touch_jam_activity(&state.db, &jam_id).await;
     let _ = state.jam_tx.send(JamEvent::QueueAdded {
         jam_id: jam_id.clone(),
         id,
@@ -1317,6 +1376,13 @@ async fn jam_playback(
 ) -> Response {
     if jam_id != member.jam_id || !member.is_host {
         return (StatusCode::FORBIDDEN, "host only").into_response();
+    }
+
+    // Only an actually-playing heartbeat counts as "activity" for the
+    // inactivity sweep — a paused jam left open sends this same heartbeat
+    // every 5s regardless, and that alone shouldn't keep it alive forever.
+    if body.is_playing {
+        touch_jam_activity(&state.db, &jam_id).await;
     }
 
     let live = JamLive {
@@ -1370,6 +1436,7 @@ async fn jam_command(
             return (StatusCode::FORBIDDEN, "the host hasn't allowed guests to do that").into_response();
         }
     }
+    touch_jam_activity(&state.db, &jam_id).await;
     let _ = state.jam_tx.send(JamEvent::RemoteCommand { jam_id, command: body.command, value: body.value });
     StatusCode::NO_CONTENT.into_response()
 }
