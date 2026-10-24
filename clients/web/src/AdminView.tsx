@@ -21,7 +21,10 @@ interface Props {
   selfId: string;
 }
 
+type AdminTab = "general" | "users" | "sso" | "lidarr";
+
 export function AdminView({ token, selfId }: Props) {
+  const [tab, setTab] = useState<AdminTab>("general");
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -156,113 +159,144 @@ export function AdminView({ token, selfId }: Props) {
 
   return (
     <section>
-      <h2>Settings</h2>
-      <label>
-        <input type="checkbox" checked={registrationAllowed} onChange={toggleRegistration} />
-        Allow anyone to create their own account from the login page
-      </label>
-
-      <h2>Single Sign-On (OIDC)</h2>
-      <p className="jam-room-empty">
-        Works with any standards-compliant provider — Authelia, Authentik, Keycloak, etc. Leave the issuer blank to
-        disable.
-      </p>
-      <form onSubmit={saveOidcSettings} className="admin-settings-form">
-        <input
-          value={oidcIssuer}
-          onChange={(e) => setOidcIssuer(e.target.value)}
-          placeholder="Issuer URL (e.g. https://auth.example.com)"
-        />
-        <input value={oidcClientId} onChange={(e) => setOidcClientId(e.target.value)} placeholder="Client ID" />
-        <input
-          type="password"
-          value={oidcClientSecret}
-          onChange={(e) => setOidcClientSecret(e.target.value)}
-          placeholder={oidcHasClientSecret ? "Client secret (set — leave blank to keep)" : "Client secret"}
-        />
-        <button type="submit">Save SSO settings</button>
-      </form>
-      {oidcStatus && <p className="jam-room-empty">{oidcStatus}</p>}
-
-      <h2>Lidarr</h2>
-      <p className="jam-room-empty">Lets any user request an artist Lidarr doesn't have yet from search.</p>
-      <form onSubmit={submitLidarrConnection} className="admin-settings-form">
-        <input
-          value={lidarrUrl}
-          onChange={(e) => setLidarrUrl(e.target.value)}
-          placeholder="Lidarr URL (e.g. http://lidarr:8686)"
-        />
-        <input
-          type="password"
-          value={lidarrApiKey}
-          onChange={(e) => setLidarrApiKey(e.target.value)}
-          placeholder={lidarrHasApiKey ? "API key (set — leave blank to keep)" : "API key"}
-        />
-        <button type="submit">Save connection</button>
-      </form>
-      <div className="admin-settings-form">
-        <button type="button" onClick={loadLidarrPickers}>
-          Load root folders &amp; quality profiles
+      <div className="filter-tabs">
+        <button className={tab === "general" ? "active" : ""} onClick={() => setTab("general")}>
+          General
         </button>
-        {lidarrRootFolders.length > 0 && (
-          <select value={lidarrRootFolder} onChange={(e) => setLidarrRootFolder(e.target.value)}>
-            <option value="">Root folder…</option>
-            {lidarrRootFolders.map((f) => (
-              <option key={f.id} value={f.path}>
-                {f.path}
-              </option>
-            ))}
-          </select>
-        )}
-        {lidarrQualityProfiles.length > 0 && (
-          <select
-            value={lidarrQualityProfileId ?? ""}
-            onChange={(e) => setLidarrQualityProfileId(e.target.value ? Number(e.target.value) : null)}
-          >
-            <option value="">Quality profile…</option>
-            {lidarrQualityProfiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        )}
-        {(lidarrRootFolder || lidarrQualityProfileId) && (
-          <button type="button" onClick={() => saveLidarrConnection()}>
-            Save root folder &amp; quality profile
-          </button>
-        )}
+        <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>
+          Users
+        </button>
+        <button className={tab === "sso" ? "active" : ""} onClick={() => setTab("sso")}>
+          Single Sign-On
+        </button>
+        <button className={tab === "lidarr" ? "active" : ""} onClick={() => setTab("lidarr")}>
+          Lidarr
+        </button>
       </div>
-      {lidarrStatus && <p className="jam-room-empty">{lidarrStatus}</p>}
 
-      <h2>Users</h2>
-      <form onSubmit={submit}>
-        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-        />
-        <label>
-          <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
-          Admin
-        </label>
-        <button type="submit">Create user</button>
-      </form>
-      {error && <p className="auth-error">{error}</p>}
-      <ul className="track-list">
-        {users.map((u) => (
-          <li key={u.id}>
-            <span className="track-title">
-              {u.username} {u.is_admin && <span className="tag">admin</span>}
-            </span>
-            <button onClick={() => remove(u.id)} disabled={u.id === selfId} title="Delete user">
-              ✕
+      {tab === "general" && (
+        <>
+          <h2>Settings</h2>
+          <label>
+            <input type="checkbox" checked={registrationAllowed} onChange={toggleRegistration} />
+            Allow anyone to create their own account from the login page
+          </label>
+        </>
+      )}
+
+      {tab === "sso" && (
+        <>
+          <h2>Single Sign-On (OIDC)</h2>
+          <p className="jam-room-empty">
+            Works with any standards-compliant provider — Authelia, Authentik, Keycloak, etc. Leave the issuer blank
+            to disable.
+          </p>
+          <form onSubmit={saveOidcSettings} className="admin-settings-form">
+            <input
+              value={oidcIssuer}
+              onChange={(e) => setOidcIssuer(e.target.value)}
+              placeholder="Issuer URL (e.g. https://auth.example.com)"
+            />
+            <input value={oidcClientId} onChange={(e) => setOidcClientId(e.target.value)} placeholder="Client ID" />
+            <input
+              type="password"
+              value={oidcClientSecret}
+              onChange={(e) => setOidcClientSecret(e.target.value)}
+              placeholder={oidcHasClientSecret ? "Client secret (set — leave blank to keep)" : "Client secret"}
+            />
+            <button type="submit">Save SSO settings</button>
+          </form>
+          {oidcStatus && <p className="jam-room-empty">{oidcStatus}</p>}
+        </>
+      )}
+
+      {tab === "lidarr" && (
+        <>
+          <h2>Lidarr</h2>
+          <p className="jam-room-empty">Lets any user request an artist Lidarr doesn't have yet from search.</p>
+          <form onSubmit={submitLidarrConnection} className="admin-settings-form">
+            <input
+              value={lidarrUrl}
+              onChange={(e) => setLidarrUrl(e.target.value)}
+              placeholder="Lidarr URL (e.g. http://lidarr:8686)"
+            />
+            <input
+              type="password"
+              value={lidarrApiKey}
+              onChange={(e) => setLidarrApiKey(e.target.value)}
+              placeholder={lidarrHasApiKey ? "API key (set — leave blank to keep)" : "API key"}
+            />
+            <button type="submit">Save connection</button>
+          </form>
+          <div className="admin-settings-form">
+            <button type="button" onClick={loadLidarrPickers}>
+              Load root folders &amp; quality profiles
             </button>
-          </li>
-        ))}
-      </ul>
+            {lidarrRootFolders.length > 0 && (
+              <select value={lidarrRootFolder} onChange={(e) => setLidarrRootFolder(e.target.value)}>
+                <option value="">Root folder…</option>
+                {lidarrRootFolders.map((f) => (
+                  <option key={f.id} value={f.path}>
+                    {f.path}
+                  </option>
+                ))}
+              </select>
+            )}
+            {lidarrQualityProfiles.length > 0 && (
+              <select
+                value={lidarrQualityProfileId ?? ""}
+                onChange={(e) => setLidarrQualityProfileId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">Quality profile…</option>
+                {lidarrQualityProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {(lidarrRootFolder || lidarrQualityProfileId) && (
+              <button type="button" onClick={() => saveLidarrConnection()}>
+                Save root folder &amp; quality profile
+              </button>
+            )}
+          </div>
+          {lidarrStatus && <p className="jam-room-empty">{lidarrStatus}</p>}
+        </>
+      )}
+
+      {tab === "users" && (
+        <>
+          <h2>Users</h2>
+          <form onSubmit={submit}>
+            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+            />
+            <label>
+              <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
+              Admin
+            </label>
+            <button type="submit">Create user</button>
+          </form>
+          {error && <p className="auth-error">{error}</p>}
+          <ul className="track-list">
+            {users.map((u) => (
+              <li key={u.id}>
+                <span className="track-title">
+                  {u.username} {u.is_admin && <span className="tag">admin</span>}
+                </span>
+                <button onClick={() => remove(u.id)} disabled={u.id === selfId} title="Delete user">
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }
