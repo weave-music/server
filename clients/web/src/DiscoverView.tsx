@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchFeatured, fetchRadio, searchExternalPlaylists } from "./api";
+import { fetchFeatured, fetchLikes, fetchRadio, searchExternalPlaylists } from "./api";
 import { Artwork } from "./Artwork";
 import { DiscIcon } from "./icons";
 import { Row } from "./Row";
@@ -10,6 +10,20 @@ import type { Playlist } from "./usePlaylists";
 import type { ExternalPlaylist, Track } from "./types";
 
 const GENRES = ["Pop", "Rock", "Hip Hop", "Country", "R&B", "Electronic", "Jazz", "Punk", "Metal", "Folk"];
+
+function sourceKey(track: Track): string | null {
+  const s = track.sources[0];
+  return s ? `${s.provider_id}:${s.source_ref}` : null;
+}
+
+function shuffled<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 interface RowState {
   id: string;
@@ -44,7 +58,7 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
   useEffect(() => {
     const seedArtists = history.getRecentArtists(2);
     const initial: RowState[] = [
-      { id: "recap", title: "Recap", tracks: [], loading: true },
+      { id: "recap", title: "For You", tracks: [], loading: true },
       ...seedArtists.map((r, i) => ({
         id: `similar-${i}`,
         title: r.artist,
@@ -56,12 +70,50 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
     setRows(initial);
     setGenreRows(GENRES.map((g) => ({ id: `genre-${g}`, title: g, playlists: [], loading: true })));
 
-    const updateRow = (id: string, tracks: Track[]) =>
-      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, tracks, loading: false } : r)));
+    const updateRow = (id: string, tracks: Track[], subtitle?: string) =>
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, tracks, subtitle, loading: false } : r)));
     const updateGenreRow = (id: string, playlists: ExternalPlaylist[]) =>
       setGenreRows((rs) => rs.map((r) => (r.id === id ? { ...r, playlists, loading: false } : r)));
 
-    fetchFeatured(token).then((tracks) => updateRow("recap", tracks));
+    // Seeded off whatever taste signal exists (liked tracks first — an
+    // explicit "I like this" beats an incidental play — then recent plays),
+    // via the same radio/mix mechanism "Similar to X" already uses. Falls
+    // back to the old randomized sample across providers only when there's
+    // truly no signal yet (a brand-new account), since there's nothing to
+    // seed a recommendation off of.
+    async function loadRecap() {
+      const liked = await fetchLikes(token).catch(() => [] as Track[]);
+      const recent = history.getRecentTracks(10);
+      const seeds: Track[] = [];
+      const seedKeys = new Set<string>();
+      for (const t of [...liked, ...recent]) {
+        const key = sourceKey(t);
+        if (!key || seedKeys.has(key)) continue;
+        seedKeys.add(key);
+        seeds.push(t);
+        if (seeds.length >= 4) break;
+      }
+
+      if (seeds.length === 0) {
+        fetchFeatured(token).then((tracks) => updateRow("recap", tracks));
+        return;
+      }
+
+      const batches = await Promise.all(seeds.map((t) => fetchRadio(token, t)));
+      const merged: Track[] = [];
+      const seen = new Set(seedKeys);
+      for (const batch of batches) {
+        for (const t of batch) {
+          const key = sourceKey(t);
+          if (key && !seen.has(key)) {
+            seen.add(key);
+            merged.push(t);
+          }
+        }
+      }
+      updateRow("recap", shuffled(merged).slice(0, 20), "Based on what you play and like");
+    }
+    loadRecap();
     seedArtists.forEach((r, i) => {
       fetchRadio(token, r.track).then((tracks) => updateRow(`similar-${i}`, tracks));
     });
@@ -82,6 +134,7 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
       {rows.length > 0 && (
         <Row
           title={rows[0].title}
+          subtitle={rows[0].subtitle}
           tracks={rows[0].tracks}
           loading={rows[0].loading}
           onPlay={onPlay}
