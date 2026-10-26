@@ -11,11 +11,28 @@
 use async_trait::async_trait;
 use rand::seq::SliceRandom;
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tokio::process::Command;
 use uuid::Uuid;
 use weave_core::{
     MediaProvider, PlaylistSummary, ProviderError, ProviderKind, ReleaseSummary, SearchQuery, Track, TrackSource,
 };
+
+// Every call this provider makes is a real round trip to YouTube (via
+// yt-dlp or ytmusicapi), typically 1-2 seconds — there's no faster way to
+// get that data, but there's also no reason to pay it again for a query
+// made minutes ago (e.g. Discover re-fetching the same 10 genre rows, or
+// the same genre shelf, on every single page load). Raw process stdout is
+// cached by its exact argv, so every call site benefits without having to
+// know about caching itself.
+const CACHE_TTL: Duration = Duration::from_secs(20 * 60);
+
+struct CacheEntry {
+    data: Vec<u8>,
+    inserted_at: Instant,
+}
 
 /// No real recommendation engine behind "browse" (there's no play history or
 /// taste profile to draw on yet) — this just gives `browse()` something to
@@ -35,11 +52,26 @@ const SEED_TOPICS: &[&str] = &[
 
 pub struct YtDlpProvider {
     id: String,
+    cache: Mutex<HashMap<String, CacheEntry>>,
 }
 
 impl YtDlpProvider {
     pub fn new(id: impl Into<String>) -> Self {
-        Self { id: id.into() }
+        Self { id: id.into(), cache: Mutex::new(HashMap::new()) }
+    }
+
+    fn cache_get(&self, key: &str) -> Option<Vec<u8>> {
+        let cache = self.cache.lock().unwrap();
+        cache.get(key).filter(|e| e.inserted_at.elapsed() < CACHE_TTL).map(|e| e.data.clone())
+    }
+
+    // Also sweeps anything well past its TTL on every write, so the map
+    // doesn't grow unboundedly over a long-running server process without
+    // needing a separate background task just for that.
+    fn cache_put(&self, key: String, data: Vec<u8>) {
+        let mut cache = self.cache.lock().unwrap();
+        cache.retain(|_, e| e.inserted_at.elapsed() < CACHE_TTL * 3);
+        cache.insert(key, CacheEntry { data, inserted_at: Instant::now() });
     }
 
     fn track_from_entry(&self, entry: FlatEntry) -> Track {
@@ -100,6 +132,14 @@ impl YtDlpProvider {
     /// to be truncated afterward.
     async fn flat_playlist(&self, list_spec: &str, limit: usize) -> Result<Vec<FlatEntry>, ProviderError> {
         let items_range = format!("1:{}", limit.max(1));
+        let cache_key = format!("flat\u{1}{list_spec}\u{1}{items_range}");
+        if let Some(cached) = self.cache_get(&cache_key) {
+            return Ok(String::from_utf8_lossy(&cached)
+                .lines()
+                .filter_map(|line| serde_json::from_str::<FlatEntry>(line).ok())
+                .collect());
+        }
+
         let output = Command::new("yt-dlp")
             .args([
                 "--flat-playlist",
@@ -118,10 +158,12 @@ impl YtDlpProvider {
             return Err(ProviderError::Upstream(String::from_utf8_lossy(&output.stderr).into_owned()));
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout)
+        let entries: Vec<FlatEntry> = String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter_map(|line| serde_json::from_str::<FlatEntry>(line).ok())
-            .collect())
+            .collect();
+        self.cache_put(cache_key, output.stdout);
+        Ok(entries)
     }
 
     /// Generic YouTube video search — mixes, livestreams, and compilations
@@ -135,6 +177,11 @@ impl YtDlpProvider {
 
     /// Runs `ytmusic_bridge.py <args...>` and parses its JSON stdout.
     async fn run_bridge<T: serde::de::DeserializeOwned>(&self, args: &[&str]) -> Result<T, ProviderError> {
+        let cache_key = format!("bridge\u{1}{}", args.join("\u{1}"));
+        if let Some(cached) = self.cache_get(&cache_key) {
+            return serde_json::from_slice(&cached).map_err(|e| ProviderError::Upstream(e.to_string()));
+        }
+
         let output = Command::new("ytmusic_bridge.py")
             .args(args)
             .output()
@@ -145,7 +192,9 @@ impl YtDlpProvider {
             return Err(ProviderError::Upstream(String::from_utf8_lossy(&output.stderr).into_owned()));
         }
 
-        serde_json::from_slice(&output.stdout).map_err(|e| ProviderError::Upstream(e.to_string()))
+        let parsed = serde_json::from_slice(&output.stdout).map_err(|e| ProviderError::Upstream(e.to_string()))?;
+        self.cache_put(cache_key, output.stdout);
+        Ok(parsed)
     }
 
     /// Fallback for artists with no YouTube Music profile: just list the
