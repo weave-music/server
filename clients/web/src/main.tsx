@@ -12,3 +12,10 @@ const jamMatch = location.pathname.match(/^\/jam\/([A-Za-z0-9]+)/);
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>{jamMatch ? <JamGuestEntry code={jamMatch[1]} /> : <App />}</React.StrictMode>,
 );
+
+// Required (on some browsers) for the "Install app" prompt — see public/sw.js.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
