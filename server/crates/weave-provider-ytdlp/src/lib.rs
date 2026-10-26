@@ -13,7 +13,9 @@ use rand::seq::SliceRandom;
 use serde::Deserialize;
 use tokio::process::Command;
 use uuid::Uuid;
-use weave_core::{MediaProvider, ProviderError, ProviderKind, ReleaseSummary, SearchQuery, Track, TrackSource};
+use weave_core::{
+    MediaProvider, PlaylistSummary, ProviderError, ProviderKind, ReleaseSummary, SearchQuery, Track, TrackSource,
+};
 
 /// No real recommendation engine behind "browse" (there's no play history or
 /// taste profile to draw on yet) — this just gives `browse()` something to
@@ -229,6 +231,24 @@ struct BridgeAlbumResponse {
     tracks: Vec<BridgeAlbumTrack>,
 }
 
+#[derive(Deserialize)]
+struct BridgePlaylist {
+    id: Option<String>,
+    title: String,
+    artwork_url: Option<String>,
+    track_count: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct BridgePlaylistsResponse {
+    playlists: Vec<BridgePlaylist>,
+}
+
+#[derive(Deserialize)]
+struct BridgePlaylistTracksResponse {
+    tracks: Vec<BridgeSong>,
+}
+
 #[async_trait]
 impl MediaProvider for YtDlpProvider {
     fn id(&self) -> &str {
@@ -365,6 +385,42 @@ impl MediaProvider for YtDlpProvider {
                 year: r.year,
                 is_single: r.is_single,
             })
+            .collect())
+    }
+
+    /// Playlist search via YouTube Music's own internal API — same
+    /// reasoning as song search: generic YouTube search has no reliable
+    /// "this is a playlist" filter, but YT Music's does.
+    async fn search_playlists(&self, query: &SearchQuery) -> Result<Vec<PlaylistSummary>, ProviderError> {
+        let limit_str = query.limit.max(1).to_string();
+        let data: BridgePlaylistsResponse =
+            self.run_bridge(&["playlists", &query.text, &limit_str]).await?;
+        Ok(data
+            .playlists
+            .into_iter()
+            .filter_map(|p| p.id.clone().map(|id| (id, p)))
+            .map(|(id, p)| PlaylistSummary {
+                id,
+                provider_id: self.id.clone(),
+                title: p.title,
+                artwork_url: p.artwork_url,
+                track_count: p.track_count,
+            })
+            .collect())
+    }
+
+    /// A playlist's tracks via YouTube Music (`playlist_ref` is a YT Music
+    /// playlistId, as returned by `search_playlists`).
+    async fn playlist_tracks(&self, playlist_ref: &str, limit: usize) -> Result<Vec<Track>, ProviderError> {
+        let limit_str = limit.max(1).to_string();
+        let data: BridgePlaylistTracksResponse =
+            self.run_bridge(&["playlist", playlist_ref, &limit_str]).await?;
+        Ok(data
+            .tracks
+            .into_iter()
+            .filter_map(|s| s.video_id.clone().map(|id| (id, s)))
+            .take(limit)
+            .map(|(video_id, s)| self.track_from_bridge_song(video_id, s))
             .collect())
     }
 }

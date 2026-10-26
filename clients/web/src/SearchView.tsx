@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getLidarrEnabled, requestLidarrArtist, searchLidarrArtists, searchTracks, type LidarrArtistResult } from "./api";
+import {
+  getLidarrEnabled,
+  requestLidarrArtist,
+  searchExternalPlaylists,
+  searchLidarrArtists,
+  searchTracks,
+  type LidarrArtistResult,
+} from "./api";
 import { Artwork } from "./Artwork";
 import type { DetailTarget } from "./DetailView";
 import { EntityCard } from "./EntityCard";
@@ -7,10 +14,32 @@ import { LikeButton } from "./LikeButton";
 import { TrackOverflowMenu } from "./TrackOverflowMenu";
 import { TrackRow } from "./TrackRow";
 import type { Playlist } from "./usePlaylists";
-import type { Track } from "./types";
+import type { ExternalPlaylist, Track } from "./types";
 
 const SEARCH_HISTORY_KEY = "weave.search-history.v1";
 const MAX_SEARCH_HISTORY = 8;
+
+// A playlist matches either by its own name, or by containing a track whose
+// title/artist matches — lets searching for a song surface the playlists
+// that have it, not just playlists you happen to have named after it.
+function playlistMatches(playlist: Playlist, needle: string): boolean {
+  if (playlist.name.toLowerCase().includes(needle)) return true;
+  return playlist.tracks.some(
+    (t) => t.title.toLowerCase().includes(needle) || (t.artist_name ?? "").toLowerCase().includes(needle),
+  );
+}
+
+// Only set when the playlist matched via a track rather than its own name —
+// shown as a small subtitle so it's clear why an otherwise-unrelated-looking
+// playlist name showed up in the results.
+function playlistMatchReason(playlist: Playlist, needle: string): string | null {
+  if (!needle || playlist.name.toLowerCase().includes(needle)) return null;
+  const track = playlist.tracks.find(
+    (t) => t.title.toLowerCase().includes(needle) || (t.artist_name ?? "").toLowerCase().includes(needle),
+  );
+  if (!track) return null;
+  return `Contains "${track.title}"${track.artist_name ? ` by ${track.artist_name}` : ""}`;
+}
 
 function loadSearchHistory(): string[] {
   try {
@@ -21,7 +50,7 @@ function loadSearchHistory(): string[] {
   }
 }
 
-type FilterTab = "all" | "songs" | "artists" | "albums" | "playlists";
+type FilterTab = "all" | "songs" | "artists" | "albums" | "playlists" | "ytplaylists";
 
 interface Props {
   token: string;
@@ -55,6 +84,7 @@ export function SearchView({
   const [query, setQuery] = useState("");
   const [committedQuery, setCommittedQuery] = useState("");
   const [results, setResults] = useState<Track[]>([]);
+  const [externalPlaylists, setExternalPlaylists] = useState<ExternalPlaylist[]>([]);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<FilterTab>("all");
   const [searchHistory, setSearchHistory] = useState<string[]>(loadSearchHistory);
@@ -131,7 +161,7 @@ export function SearchView({
 
   const autocompletePlaylists = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return playlists.filter((playlist) => !needle || playlist.name.toLowerCase().includes(needle));
+    return playlists.filter((playlist) => !needle || playlistMatches(playlist, needle));
   }, [query, playlists]);
 
   // Artist/album browsing is derived from whatever the current result set
@@ -155,12 +185,13 @@ export function SearchView({
   }, [results]);
 
   // Playlists aren't server-side searchable (they're local to the browser —
-  // see usePlaylists), so this just matches by name against the committed
-  // query instead of issuing a separate search.
+  // see usePlaylists), so this just matches by name OR by a track inside the
+  // playlist (title/artist) against the committed query, instead of issuing
+  // a separate search.
   const matchingPlaylists = useMemo(() => {
     const needle = committedQuery.trim().toLowerCase();
     if (!needle) return [];
-    return playlists.filter((p) => p.name.toLowerCase().includes(needle));
+    return playlists.filter((p) => playlistMatches(p, needle));
   }, [playlists, committedQuery]);
 
   async function performSearch(term: string) {
@@ -168,7 +199,12 @@ export function SearchView({
     if (!cleanTerm) return;
     setLoading(true);
     try {
-      setResults(await searchTracks(cleanTerm, token));
+      const [tracks, playlists] = await Promise.all([
+        searchTracks(cleanTerm, token),
+        searchExternalPlaylists(cleanTerm, token),
+      ]);
+      setResults(tracks);
+      setExternalPlaylists(playlists);
       setCommittedQuery(cleanTerm);
       setTab("all");
       setSearchHistory((previous) => {
@@ -191,9 +227,21 @@ export function SearchView({
     setSearchHistory([]);
   }
 
-  const hasResults = results.length > 0 || matchingPlaylists.length > 0;
+  const hasResults = results.length > 0 || matchingPlaylists.length > 0 || externalPlaylists.length > 0;
 
-  function playlistButton(key: string, name: string, tracks: Track[]) {
+  function externalPlaylistCard(p: ExternalPlaylist) {
+    return (
+      <EntityCard
+        key={p.id}
+        name={p.title}
+        subtitle={p.track_count != null ? `${p.track_count} ${p.track_count === 1 ? "song" : "songs"}` : undefined}
+        artworkUrl={p.artwork_url}
+        onClick={() => onOpenDetail({ type: "playlist", providerId: p.provider_id, ref: p.id, name: p.title })}
+      />
+    );
+  }
+
+  function playlistButton(key: string, name: string, tracks: Track[], matchReason?: string | null) {
     return (
       <li key={key}>
         <button className="entity-row" onClick={() => tracks.length > 0 && onPlayAll(tracks)} disabled={tracks.length === 0}>
@@ -204,7 +252,10 @@ export function SearchView({
               <Artwork url={null} alt="" />
             )}
           </div>
-          <span className="entity-name">{name}</span>
+          <span className="entity-name-col">
+            <span className="entity-name">{name}</span>
+            {matchReason && <span className="entity-subtitle">{matchReason}</span>}
+          </span>
         </button>
       </li>
     );
@@ -330,6 +381,11 @@ export function SearchView({
               Playlists ({matchingPlaylists.length})
             </button>
           )}
+          {externalPlaylists.length > 0 && (
+            <button className={tab === "ytplaylists" ? "active" : ""} onClick={() => setTab("ytplaylists")}>
+              YouTube Music ({externalPlaylists.length})
+            </button>
+          )}
         </div>
       )}
 
@@ -389,11 +445,22 @@ export function SearchView({
           {matchingPlaylists.length > 0 && (
             <section className="home-row">
               <div className="home-row-heading">
-                <h3>Playlists</h3>
+                <h3>Your Playlists</h3>
               </div>
               <ul className="entity-list">
-                {matchingPlaylists.map((pl) => playlistButton(pl.id, pl.name, pl.tracks))}
+                {matchingPlaylists.map((pl) =>
+                  playlistButton(pl.id, pl.name, pl.tracks, playlistMatchReason(pl, committedQuery.trim().toLowerCase())),
+                )}
               </ul>
+            </section>
+          )}
+
+          {externalPlaylists.length > 0 && (
+            <section className="home-row">
+              <div className="home-row-heading">
+                <h3>From YouTube Music</h3>
+              </div>
+              <div className="home-row-scroll">{externalPlaylists.map(externalPlaylistCard)}</div>
             </section>
           )}
 
@@ -458,9 +525,13 @@ export function SearchView({
 
       {tab === "playlists" && (
         <ul className="entity-list">
-          {matchingPlaylists.map((pl) => playlistButton(pl.id, pl.name, pl.tracks))}
+          {matchingPlaylists.map((pl) =>
+            playlistButton(pl.id, pl.name, pl.tracks, playlistMatchReason(pl, committedQuery.trim().toLowerCase())),
+          )}
         </ul>
       )}
+
+      {tab === "ytplaylists" && <div className="home-row-scroll">{externalPlaylists.map(externalPlaylistCard)}</div>}
 
       {lidarrEnabled && committedQuery && (tab === "all" || tab === "songs") && (
         <section className="home-row lidarr-request-row">

@@ -1,4 +1,4 @@
-import type { ReleaseSummary, Track } from "./types";
+import type { ExternalPlaylist, ReleaseSummary, Track } from "./types";
 
 // Streaming goes through <audio src>, which can't set an Authorization
 // header, so the token travels as a query param there instead (the same
@@ -73,6 +73,26 @@ export async function fetchArtistTracks(token: string, providerId: string, artis
 export async function fetchAlbumTracks(token: string, providerId: string, albumRef: string): Promise<Track[]> {
   const params = new URLSearchParams({ provider: providerId, ref: albumRef });
   const res = await fetch(`/api/album?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.results ?? [];
+}
+
+// Separate from searchTracks — kept as its own request (rather than folded
+// into /api/search's response) so a plain track search doesn't pay for a
+// playlist lookup it isn't going to use.
+export async function searchExternalPlaylists(query: string, token: string): Promise<ExternalPlaylist[]> {
+  const res = await fetch(`/api/search/playlists?q=${encodeURIComponent(query)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.playlists ?? [];
+}
+
+export async function fetchPlaylistTracks(token: string, providerId: string, playlistRef: string): Promise<Track[]> {
+  const params = new URLSearchParams({ provider: providerId, ref: playlistRef });
+  const res = await fetch(`/api/playlist?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) return [];
   const data = await res.json();
   return data.results ?? [];

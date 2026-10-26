@@ -970,6 +970,17 @@ form label {
   font-size: 0.95rem;
 }
 
+.entity-name-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.entity-subtitle {
+  color: #999;
+  font-size: 0.8rem;
+}
+
 .now-playing-goto {
   max-width: 360px;
   width: 100%;
@@ -1370,53 +1381,56 @@ form label {
   margin: 0;
 }
 
-.jam-room-invite-bar {
+.jam-room-topbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.jam-room-end-bar {
   max-width: 480px;
   width: 100%;
   margin: 0 auto 1.5rem;
   display: flex;
-  gap: 0.5rem;
+  justify-content: flex-end;
 }
 
-.jam-room-invite-chip {
-  flex: 1;
-  background: #1a1a1a;
-  border-radius: 999px;
-  padding: 0.6rem 1rem;
-  font-weight: 600;
-  text-align: center;
-}
-
-/* Pops up automatically when a jam starts — "Minimize" just hides this,
-   the jam itself (and the invite-bar chip to reopen it) stays up. */
-.jam-invite-backdrop {
+/* Shared by the "connection info" and "jam settings" popups — both are
+   pulled up from a topbar icon rather than always taking up page space;
+   closing one just hides it, the jam itself keeps running. */
+.jam-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 40;
   background: rgba(0, 0, 0, 0.6);
 }
 
-.jam-invite-popup {
+.jam-modal {
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 41;
   width: min(320px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
   background: #1a1a1a;
   border-radius: 16px;
   padding: 1.5rem;
-  text-align: center;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-.jam-invite-popup h3 {
+.jam-modal--invite {
+  text-align: center;
+}
+
+.jam-modal h3 {
   margin: 0 0 1rem;
   font-size: 1rem;
 }
 
-.jam-invite-minimize {
-  margin-top: 0.75rem;
+.jam-modal-close {
+  margin-top: 1rem;
   width: 100%;
   background: #333;
   border-radius: 999px;

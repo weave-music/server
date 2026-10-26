@@ -144,11 +144,13 @@ async fn main() {
         .route("/api/users/:id", delete(delete_user))
         .route("/api/me", get(me))
         .route("/api/search", get(search))
+        .route("/api/search/playlists", get(search_playlists))
         .route("/api/featured", get(featured))
         .route("/api/radio", get(radio))
         .route("/api/artist", get(artist_tracks))
         .route("/api/artist/releases", get(artist_releases))
         .route("/api/album", get(album_tracks))
+        .route("/api/playlist", get(playlist_tracks))
         .route("/api/likes", get(list_likes).post(like_track).delete(unlike_track))
         .route("/api/stream", get(stream))
         .route("/api/playback", get(get_playback).post(update_playback))
@@ -439,6 +441,30 @@ async fn search(
     Json(serde_json::json!({ "results": results }))
 }
 
+/// Playlists matching a search term, across every provider that has a real
+/// playlist concept (today: yt-dlp, via YouTube Music — see
+/// `MediaProvider::search_playlists`). Kept separate from `search` (which
+/// only ever returns tracks) rather than folded into its response, so
+/// every existing `search` caller is unaffected and a track-only search
+/// doesn't pay for a playlist lookup it doesn't want.
+async fn search_playlists(
+    State(state): State<AppState>,
+    _user: Searcher,
+    Query(params): Query<SearchParams>,
+) -> Json<serde_json::Value> {
+    let query = SearchQuery { text: params.q, limit: 15 };
+
+    let mut results = Vec::new();
+    for provider in &state.providers {
+        match provider.search_playlists(&query).await {
+            Ok(playlists) => results.extend(playlists),
+            Err(err) => tracing::warn!(provider = provider.id(), %err, "provider search_playlists failed"),
+        }
+    }
+
+    Json(serde_json::json!({ "playlists": results }))
+}
+
 /// "Featured" tracks: a shuffled sample pulled live from every provider's
 /// `browse()`. There's no listening history or taste profile yet (see
 /// REQUIREMENTS.md §13), so this is honestly just randomized discovery, not
@@ -520,6 +546,26 @@ async fn album_tracks(
         Err(err) => {
             tracing::warn!(provider = params.provider, %err, "album_tracks failed");
             (StatusCode::NOT_FOUND, "could not load album").into_response()
+        }
+    }
+}
+
+/// A playlist's tracks (see `MediaProvider::playlist_tracks` — yt-dlp via
+/// YouTube Music; `item_ref` is the playlistId a `/api/search/playlists`
+/// result came back with).
+async fn playlist_tracks(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Query(params): Query<ArtistAlbumParams>,
+) -> Response {
+    let Some(provider) = state.provider(&params.provider) else {
+        return (StatusCode::NOT_FOUND, "unknown provider").into_response();
+    };
+    match provider.playlist_tracks(&params.item_ref, 300).await {
+        Ok(results) => Json(serde_json::json!({ "results": results })).into_response(),
+        Err(err) => {
+            tracing::warn!(provider = params.provider, %err, "playlist_tracks failed");
+            (StatusCode::NOT_FOUND, "could not load playlist").into_response()
         }
     }
 }

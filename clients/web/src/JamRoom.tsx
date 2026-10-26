@@ -1,7 +1,17 @@
 import QRCode from "qrcode";
 import { useEffect, useMemo, useState } from "react";
 import { Artwork } from "./Artwork";
-import { ChevronDownIcon, PauseIcon, PlayIcon, RepeatIcon, ShuffleIcon, SkipBackIcon, SkipForwardIcon } from "./icons";
+import {
+  ChevronDownIcon,
+  PauseIcon,
+  PlayIcon,
+  RepeatIcon,
+  SettingsIcon,
+  ShareIcon,
+  ShuffleIcon,
+  SkipBackIcon,
+  SkipForwardIcon,
+} from "./icons";
 import { searchTracks } from "./api";
 import {
   dedupeMembers,
@@ -97,8 +107,13 @@ export function JamRoom({
   const [searching, setSearching] = useState(false);
   // Pops up automatically the moment a jam exists to join, and again
   // whenever a new jam starts (joinUrl changing from null to a fresh code)
-  // — minimizing just hides the popup, the jam itself keeps running.
+  // — minimizing just hides the popup, the jam itself keeps running. The
+  // share icon in the topbar pulls it back up anytime after that.
   const [inviteMinimized, setInviteMinimized] = useState(false);
+  // Jam Settings lives in its own popup too, toggled from the topbar gear
+  // — closed by default since it's a less time-sensitive glance than the
+  // invite info, which a host usually wants right after starting a jam.
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     if (!joinUrl) {
@@ -108,6 +123,16 @@ export function JamRoom({
     setInviteMinimized(false);
     QRCode.toDataURL(joinUrl, { margin: 1, width: 220 }).then(setQrDataUrl).catch(() => setQrDataUrl(null));
   }, [joinUrl]);
+
+  function openInvite() {
+    setShowSettings(false);
+    setInviteMinimized(false);
+  }
+
+  function openSettings() {
+    setInviteMinimized(true);
+    setShowSettings(true);
+  }
 
   // Most recent log entry for a given track's source wins — good enough to
   // show "who added this" without the server needing to track consumption.
@@ -143,44 +168,123 @@ export function JamRoom({
   return (
     <div className="jam-room">
       <div className="jam-room-topbar">
-        {onClose && (
-          <button onClick={onClose} title="Close">
-            <ChevronDownIcon />
-          </button>
-        )}
-        <span>{isHost ? "Your Jam" : "Weave Jam"}</span>
-        <span className="jam-room-members">
-          {displayMembers.length} {displayMembers.length === 1 ? "person" : "people"}
-        </span>
+        <div className="jam-room-topbar-group">
+          {onClose && (
+            <button onClick={onClose} title="Close">
+              <ChevronDownIcon />
+            </button>
+          )}
+          <span>{isHost ? "Your Jam" : "Weave Jam"}</span>
+        </div>
+        <div className="jam-room-topbar-group">
+          {isHost && joinUrl && (
+            <button onClick={openInvite} title="Connection info">
+              <ShareIcon />
+            </button>
+          )}
+          {isHost && settings && onUpdateSettings && (
+            <button onClick={openSettings} title="Jam settings">
+              <SettingsIcon />
+            </button>
+          )}
+          <span className="jam-room-members">
+            {displayMembers.length} {displayMembers.length === 1 ? "person" : "people"}
+          </span>
+        </div>
       </div>
 
       {ended ? (
         <p className="jam-room-empty">This jam has ended.</p>
       ) : (
         <>
-          {isHost && joinUrl && (
-            <div className="jam-room-invite-bar">
-              <button className="jam-room-invite-chip" onClick={() => setInviteMinimized(false)}>
-                Invite people · {joinCode}
+          {isHost && onEndJam && (
+            <div className="jam-room-end-bar">
+              <button className="jam-room-end" onClick={onEndJam}>
+                End Jam
               </button>
-              {onEndJam && (
-                <button className="jam-room-end" onClick={onEndJam}>
-                  End Jam
-                </button>
-              )}
             </div>
           )}
 
           {isHost && joinUrl && !inviteMinimized && (
             <>
-              <div className="jam-invite-backdrop" onClick={() => setInviteMinimized(true)} />
-              <div className="jam-invite-popup" role="dialog" aria-label="Invite people to this jam">
+              <div className="jam-modal-backdrop" onClick={() => setInviteMinimized(true)} />
+              <div className="jam-modal jam-modal--invite" role="dialog" aria-label="Invite people to this jam">
                 <h3>Invite people to your Jam</h3>
                 {qrDataUrl && <img className="jam-room-qr" src={qrDataUrl} alt="QR code to join this jam" />}
                 <div className="jam-room-code">{joinCode}</div>
                 <p className="jam-room-url">Scan to join, or go to {joinUrl}</p>
-                <button className="jam-invite-minimize" onClick={() => setInviteMinimized(true)}>
-                  Minimize
+                <button className="jam-modal-close" onClick={() => setInviteMinimized(true)}>
+                  Close
+                </button>
+              </div>
+            </>
+          )}
+
+          {isHost && showSettings && settings && onUpdateSettings && (
+            <>
+              <div className="jam-modal-backdrop" onClick={() => setShowSettings(false)} />
+              <div className="jam-modal" role="dialog" aria-label="Jam settings">
+                <h3>Jam Settings</h3>
+                <p className="jam-room-empty">
+                  What guests (not your own devices) can do — saved for your next jam too.
+                </p>
+                <ul className="jam-settings-list">
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={settings.guests_can_add_queue}
+                        onChange={(e) => onUpdateSettings({ ...settings, guests_can_add_queue: e.target.checked })}
+                      />
+                      Guests can add songs to the queue
+                    </label>
+                  </li>
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={settings.guests_can_control_playback}
+                        onChange={(e) =>
+                          onUpdateSettings({ ...settings, guests_can_control_playback: e.target.checked })
+                        }
+                      />
+                      Guests can play, pause, and skip
+                    </label>
+                  </li>
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={settings.guests_can_shuffle_repeat}
+                        onChange={(e) =>
+                          onUpdateSettings({ ...settings, guests_can_shuffle_repeat: e.target.checked })
+                        }
+                      />
+                      Guests can shuffle and repeat
+                    </label>
+                  </li>
+                  <li>
+                    <label>
+                      End the jam automatically after
+                      <select
+                        value={settings.inactivity_timeout_minutes}
+                        onChange={(e) =>
+                          onUpdateSettings({ ...settings, inactivity_timeout_minutes: Number(e.target.value) })
+                        }
+                      >
+                        <option value={0}>never</option>
+                        <option value={15}>15 minutes</option>
+                        <option value={30}>30 minutes</option>
+                        <option value={60}>1 hour</option>
+                        <option value={120}>2 hours</option>
+                        <option value={240}>4 hours</option>
+                      </select>
+                      of inactivity
+                    </label>
+                  </li>
+                </ul>
+                <button className="jam-modal-close" onClick={() => setShowSettings(false)}>
+                  Done
                 </button>
               </div>
             </>
@@ -263,62 +367,6 @@ export function JamRoom({
               </div>
             )}
           </section>
-
-          {isHost && settings && onUpdateSettings && (
-            <section className="jam-room-section">
-              <h3>Jam Settings</h3>
-              <p className="jam-room-empty">What guests (not your own devices) can do — saved for your next jam too.</p>
-              <ul className="jam-settings-list">
-                <li>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={settings.guests_can_add_queue}
-                      onChange={(e) => onUpdateSettings({ ...settings, guests_can_add_queue: e.target.checked })}
-                    />
-                    Guests can add songs to the queue
-                  </label>
-                </li>
-                <li>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={settings.guests_can_control_playback}
-                      onChange={(e) => onUpdateSettings({ ...settings, guests_can_control_playback: e.target.checked })}
-                    />
-                    Guests can play, pause, and skip
-                  </label>
-                </li>
-                <li>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={settings.guests_can_shuffle_repeat}
-                      onChange={(e) => onUpdateSettings({ ...settings, guests_can_shuffle_repeat: e.target.checked })}
-                    />
-                    Guests can shuffle and repeat
-                  </label>
-                </li>
-                <li>
-                  <label>
-                    End the jam automatically after
-                    <select
-                      value={settings.inactivity_timeout_minutes}
-                      onChange={(e) => onUpdateSettings({ ...settings, inactivity_timeout_minutes: Number(e.target.value) })}
-                    >
-                      <option value={0}>never</option>
-                      <option value={15}>15 minutes</option>
-                      <option value={30}>30 minutes</option>
-                      <option value={60}>1 hour</option>
-                      <option value={120}>2 hours</option>
-                      <option value={240}>4 hours</option>
-                    </select>
-                    of inactivity
-                  </label>
-                </li>
-              </ul>
-            </section>
-          )}
 
           <div className="jam-room-columns">
             <section className="jam-room-section">

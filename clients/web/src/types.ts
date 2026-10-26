@@ -31,3 +31,16 @@ export interface ReleaseSummary {
   year: string | null;
   is_single: boolean;
 }
+
+// A playlist search result (today: YouTube Music, via searchExternalPlaylists)
+// — not a full Track list, just enough to show a card and open it via
+// fetchPlaylistTracks. provider_id travels with each result since playlist
+// search spans every provider at once, unlike ReleaseSummary which is always
+// browsed within an already-known provider.
+export interface ExternalPlaylist {
+  id: string;
+  provider_id: string;
+  title: string;
+  artwork_url: string | null;
+  track_count: number | null;
+}

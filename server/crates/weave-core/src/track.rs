@@ -55,3 +55,18 @@ pub struct ReleaseSummary {
     pub year: Option<String>,
     pub is_single: bool,
 }
+
+/// A playlist search result — not a full `Track` list, just enough to show
+/// a card and open it via `MediaProvider::playlist_tracks`. Unlike
+/// `ReleaseSummary` (always browsed within an already-known provider, e.g.
+/// an artist's own releases), playlist search spans every provider at once
+/// (see `MediaProvider::search_playlists`), so the provider that produced
+/// each result travels with it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistSummary {
+    pub id: String,
+    pub provider_id: String,
+    pub title: String,
+    pub artwork_url: Option<String>,
+    pub track_count: Option<u32>,
+}

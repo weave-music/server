@@ -72,6 +72,54 @@ def cmd_artist(channel_id):
     print(json.dumps({"songs": songs, "releases": releases("albums", False) + releases("singles", True)}))
 
 
+def playlist_entry(r):
+    count = r.get("itemCount")
+    try:
+        count = int(count) if count is not None else None
+    except (TypeError, ValueError):
+        count = None
+    return {
+        "id": r.get("playlistId") or r.get("browseId"),
+        "title": r.get("title"),
+        "artwork_url": best_thumbnail(r.get("thumbnails")),
+        "track_count": count,
+    }
+
+
+def cmd_playlists(query, limit):
+    yt = YTMusic()
+    results = yt.search(query, filter="playlists", limit=int(limit))
+    print(json.dumps({"playlists": [playlist_entry(r) for r in results if r.get("playlistId") or r.get("browseId")]}))
+
+
+def cmd_playlist(playlist_id, limit):
+    yt = YTMusic()
+    playlist = yt.get_playlist(playlist_id, limit=int(limit))
+    playlist_artwork = best_thumbnail(playlist.get("thumbnails"))
+
+    tracks = []
+    for t in playlist.get("tracks", []):
+        # Unavailable/private videos still show up as entries with no videoId.
+        if not t.get("videoId"):
+            continue
+        name, ref = artist_name_and_ref(t.get("artists"))
+        album = t.get("album") or {}
+        tracks.append(
+            {
+                "video_id": t.get("videoId"),
+                "title": t.get("title"),
+                "artist_name": name,
+                "artist_ref": ref,
+                "album_name": album.get("name"),
+                "album_ref": album.get("id"),
+                "duration_secs": t.get("duration_seconds"),
+                "artwork_url": best_thumbnail(t.get("thumbnails")) or playlist_artwork,
+            }
+        )
+
+    print(json.dumps({"title": playlist.get("title"), "artwork_url": playlist_artwork, "tracks": tracks}))
+
+
 def cmd_album(browse_id):
     yt = YTMusic()
     album = yt.get_album(browse_id)
@@ -97,7 +145,10 @@ def cmd_album(browse_id):
 
 def main():
     if len(sys.argv) < 3:
-        print(json.dumps({"error": "usage: ytmusic_bridge.py <songs|artist|album> <query|id> [limit]"}), file=sys.stderr)
+        print(
+            json.dumps({"error": "usage: ytmusic_bridge.py <songs|artist|album|playlists|playlist> <query|id> [limit]"}),
+            file=sys.stderr,
+        )
         sys.exit(1)
     command, arg = sys.argv[1], sys.argv[2]
     try:
@@ -107,6 +158,10 @@ def main():
             cmd_artist(arg)
         elif command == "album":
             cmd_album(arg)
+        elif command == "playlists":
+            cmd_playlists(arg, sys.argv[3] if len(sys.argv) > 3 else 25)
+        elif command == "playlist":
+            cmd_playlist(arg, sys.argv[3] if len(sys.argv) > 3 else 300)
         else:
             raise ValueError(f"unknown command: {command}")
     except Exception as e:

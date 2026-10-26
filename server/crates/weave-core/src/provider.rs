@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{ReleaseSummary, Track};
+use crate::{PlaylistSummary, ReleaseSummary, Track};
 
 /// Download sources acquire files into the library; streaming sources
 /// play audio without necessarily owning a local copy. A provider may
@@ -77,6 +77,19 @@ pub trait MediaProvider: Send + Sync {
     /// YouTube Music's own internal API — not available through generic
     /// YouTube channel scraping). Default: unsupported.
     async fn artist_releases(&self, _artist_ref: &str) -> Result<Vec<ReleaseSummary>, ProviderError> {
+        Ok(Vec::new())
+    }
+
+    /// Playlists matching a search term, when the provider has a real
+    /// playlist concept (today: yt-dlp only, via YouTube Music's own
+    /// playlist search — see `ytmusic_bridge.py`). Default: unsupported.
+    async fn search_playlists(&self, _query: &SearchQuery) -> Result<Vec<PlaylistSummary>, ProviderError> {
+        Ok(Vec::new())
+    }
+
+    /// The tracks that make up the playlist identified by
+    /// `PlaylistSummary::id`. Default: unsupported.
+    async fn playlist_tracks(&self, _playlist_ref: &str, _limit: usize) -> Result<Vec<Track>, ProviderError> {
         Ok(Vec::new())
     }
 }

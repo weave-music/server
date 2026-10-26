@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchAlbumTracks, fetchArtistReleases, fetchArtistTracks, fetchRadio } from "./api";
+import { fetchAlbumTracks, fetchArtistReleases, fetchArtistTracks, fetchPlaylistTracks, fetchRadio } from "./api";
 import { Artwork } from "./Artwork";
 import { EntityCard } from "./EntityCard";
 import { ChevronLeftIcon, HeartFilledIcon, HeartIcon, PlayIcon, RadioIcon, ShareIcon, ShuffleIcon } from "./icons";
@@ -11,7 +11,7 @@ import type { Playlist } from "./usePlaylists";
 import type { ReleaseSummary, Track } from "./types";
 
 export interface DetailTarget {
-  type: "artist" | "album";
+  type: "artist" | "album" | "playlist";
   providerId: string;
   ref: string;
   name: string;
@@ -88,7 +88,8 @@ export function DetailView({
     setSimilarArtists([]);
     setReleases([]);
     setArtistPage(0);
-    const fetcher = target.type === "artist" ? fetchArtistTracks : fetchAlbumTracks;
+    const fetcher =
+      target.type === "artist" ? fetchArtistTracks : target.type === "album" ? fetchAlbumTracks : fetchPlaylistTracks;
     fetcher(token, target.providerId, target.ref).then((t) => {
       setTracks(t);
       setLoading(false);
@@ -315,9 +316,9 @@ export function DetailView({
       <div className="detail-view-header">
         <Artwork url={tracks[0]?.artwork_url ?? null} size="lg" alt="" />
         <div>
-          <div className="detail-view-kind">Album</div>
+          <div className="detail-view-kind">{target.type === "album" ? "Album" : "Playlist"}</div>
           <h2>{target.name}</h2>
-          {albumArtist && (
+          {target.type === "album" && albumArtist && (
             <button
               className="album-artist-link"
               onClick={() =>
@@ -343,10 +344,12 @@ export function DetailView({
             <div className="album-actions">
               <button onClick={() => onPlay(tracks)}><PlayIcon /> Play</button>
               <button onClick={() => onPlay(shuffled(tracks))}><ShuffleIcon /> Shuffle</button>
-              <button onClick={toggleAlbumLike} title={allAlbumTracksLiked ? "Unlike album" : "Like album"}>
+              <button onClick={toggleAlbumLike} title={allAlbumTracksLiked ? "Unlike all" : "Like all"}>
                 {allAlbumTracksLiked ? <HeartFilledIcon /> : <HeartIcon />} Like
               </button>
-              <button onClick={() => onShareAlbum(target, albumArtist?.artist_name)}>Share</button>
+              {target.type === "album" && (
+                <button onClick={() => onShareAlbum(target, albumArtist?.artist_name)}>Share</button>
+              )}
               <div className="album-playlist">
                 <button onClick={() => setAddingAlbum((open) => !open)}>Add to playlist</button>
                 {addingAlbum && (
