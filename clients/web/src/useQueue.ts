@@ -415,6 +415,50 @@ export function useQueue(token: string | null) {
     return () => clearInterval(interval);
   }, [isPlaying, pushPlaybackState]);
 
+  // Feeds the OS-level media controls — Android's/Chrome OS's media
+  // notification, the lock screen, hardware/earbud media keys — with the
+  // actual track instead of the generic page title + app icon they fall
+  // back to without this.
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    if (!currentTrack) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: currentTrack.title,
+      artist: currentTrack.artist_name ?? undefined,
+      album: currentTrack.album_name ?? undefined,
+      artwork: currentTrack.artwork_url ? [{ src: currentTrack.artwork_url, sizes: "512x512" }] : [],
+    });
+  }, [currentTrack]);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+  }, [isPlaying]);
+
+  // Without these, that same OS media UI has no way to skip tracks (it only
+  // knows play/pause, inferred automatically from the <audio> element) and
+  // its seek bar is purely decorative.
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.setActionHandler("play", play);
+    navigator.mediaSession.setActionHandler("pause", pause);
+    navigator.mediaSession.setActionHandler("previoustrack", prev);
+    navigator.mediaSession.setActionHandler("nexttrack", next);
+    navigator.mediaSession.setActionHandler("seekto", (details) => {
+      if (details.seekTime != null) seek(details.seekTime);
+    });
+    return () => {
+      navigator.mediaSession.setActionHandler("play", null);
+      navigator.mediaSession.setActionHandler("pause", null);
+      navigator.mediaSession.setActionHandler("previoustrack", null);
+      navigator.mediaSession.setActionHandler("nexttrack", null);
+      navigator.mediaSession.setActionHandler("seekto", null);
+    };
+  }, [play, pause, prev, next, seek]);
+
   return {
     audioRef: setAudioElement,
     queue,
