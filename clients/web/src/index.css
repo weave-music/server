@@ -1,5 +1,9 @@
 * {
   box-sizing: border-box;
+  /* Kills the blue/gray flash mobile browsers draw on tap by default —
+     every clickable element in this app already has its own :active/hover
+     styling, so the browser's own highlight box is just visual noise. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
