@@ -84,10 +84,6 @@ impl AppState {
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let music_dir = std::env::var("WEAVE_LIBRARY_PATH").unwrap_or_else(|_| "/music".to_string());
-    let local_provider = Arc::new(LocalFilesystemProvider::new("local", music_dir));
-    let ytdlp_provider = Arc::new(YtDlpProvider::new("ytdlp"));
-
     let db_path = std::env::var("WEAVE_DB_PATH").unwrap_or_else(|_| "/config/weave.db".to_string());
     let connect_options = SqliteConnectOptions::new().filename(&db_path).create_if_missing(true);
     let db = SqlitePoolOptions::new()
@@ -95,6 +91,10 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("failed to open database at {db_path}: {e}"));
     sqlx::migrate!().run(&db).await.expect("database migrations failed");
+
+    let music_dir = std::env::var("WEAVE_LIBRARY_PATH").unwrap_or_else(|_| "/music".to_string());
+    let local_provider = Arc::new(LocalFilesystemProvider::new("local", music_dir));
+    let ytdlp_provider = Arc::new(YtDlpProvider::new("ytdlp", db.clone()));
 
     let cache_dir = PathBuf::from(std::env::var("WEAVE_CACHE_PATH").unwrap_or_else(|_| "/config/cache".to_string()));
     std::fs::create_dir_all(&cache_dir).expect("failed to create cache directory");

@@ -3,7 +3,7 @@ import { AdminView } from "./AdminView";
 import { AuthView } from "./AuthView";
 import { DetailView, type DetailTarget } from "./DetailView";
 import { DiscoverView } from "./DiscoverView";
-import { fetchRadio } from "./api";
+import { fetchArtistReleases, fetchArtistTracks, fetchRadio } from "./api";
 import { ChevronDownIcon, JamIcon } from "./icons";
 import { JamRoom } from "./JamRoom";
 import { dedupeMembers } from "./jamApi";
@@ -49,6 +49,21 @@ export default function App() {
     if (queueApi.currentTrack) history.recordPlay(queueApi.currentTrack);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queueApi.currentTrack?.id]);
+
+  // Warms the server's response cache for this track's artist page while it
+  // plays — tapping through to "more from this artist" is a very common
+  // next move, and this way that page is already fast by the time anyone
+  // asks for it instead of paying the full external-API latency right when
+  // they're waiting on it. Fire-and-forget: nothing here is rendered.
+  useEffect(() => {
+    const track = queueApi.currentTrack;
+    const providerId = track?.sources[0]?.provider_id;
+    const artistRef = track?.artist_ref;
+    if (!token || !providerId || !artistRef) return;
+    fetchArtistTracks(token, providerId, artistRef).catch(() => {});
+    fetchArtistReleases(token, providerId, artistRef).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueApi.currentTrack?.artist_ref, token]);
 
   if (checking) return null;
   if (!token || !me) return <AuthView onLogin={login} onSetup={setup} onRegister={register} />;
