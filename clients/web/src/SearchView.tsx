@@ -458,7 +458,7 @@ export function SearchView({
           {externalPlaylists.length > 0 && (
             <section className="home-row">
               <div className="home-row-heading">
-                <h3>From YouTube Music</h3>
+                <h3>Playlists</h3>
               </div>
               <div className="home-row-scroll">{externalPlaylists.map(externalPlaylistCard)}</div>
             </section>

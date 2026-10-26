@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { fetchFeatured, fetchRadio, searchTracks } from "./api";
+import { fetchFeatured, fetchRadio, searchExternalPlaylists } from "./api";
 import { Artwork } from "./Artwork";
 import { DiscIcon } from "./icons";
 import { Row } from "./Row";
 import { EntityCard } from "./EntityCard";
 import { useListeningHistory } from "./useListeningHistory";
+import type { DetailTarget } from "./DetailView";
 import type { Playlist } from "./usePlaylists";
-import type { Track } from "./types";
+import type { ExternalPlaylist, Track } from "./types";
 
 const GENRES = ["Pop", "Rock", "Hip Hop", "Country", "R&B", "Electronic", "Jazz", "Punk", "Metal", "Folk"];
 
@@ -18,17 +19,25 @@ interface RowState {
   loading: boolean;
 }
 
+interface GenreRowState {
+  id: string;
+  title: string;
+  playlists: ExternalPlaylist[];
+  loading: boolean;
+}
+
 interface Props {
   token: string;
   onPlay: (tracks: Track[], startId?: string) => void;
   playlists: Playlist[];
   historyVersion: number;
-  onOpenDetail?: (target: { type: "artist"; providerId: string; ref: string; name: string }) => void;
+  onOpenDetail?: (target: DetailTarget) => void;
 }
 
 export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenDetail }: Props) {
   const history = useListeningHistory();
   const [rows, setRows] = useState<RowState[]>([]);
+  const [genreRows, setGenreRows] = useState<GenreRowState[]>([]);
   const recentlyPlayed = history.getRecentTracks(10);
   const recentArtists = history.getRecentArtists(6);
 
@@ -43,19 +52,27 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
         tracks: [],
         loading: true,
       })),
-      ...GENRES.map((g) => ({ id: `genre-${g}`, title: g, tracks: [], loading: true })),
     ];
     setRows(initial);
+    setGenreRows(GENRES.map((g) => ({ id: `genre-${g}`, title: g, playlists: [], loading: true })));
 
     const updateRow = (id: string, tracks: Track[]) =>
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, tracks, loading: false } : r)));
+    const updateGenreRow = (id: string, playlists: ExternalPlaylist[]) =>
+      setGenreRows((rs) => rs.map((r) => (r.id === id ? { ...r, playlists, loading: false } : r)));
 
     fetchFeatured(token).then((tracks) => updateRow("recap", tracks));
     seedArtists.forEach((r, i) => {
       fetchRadio(token, r.track).then((tracks) => updateRow(`similar-${i}`, tracks));
     });
+    // Real YouTube Music playlists for each genre, found the same way the
+    // Search page finds them (search_playlists) — YT Music's own curated
+    // mood/genre browse endpoint (get_mood_playlists) currently errors out
+    // on every genre against the installed ytmusicapi version (an upstream
+    // parsing bug, not something fixable here), so this reuses the
+    // already-working playlist search instead of that broken endpoint.
     GENRES.forEach((g) => {
-      searchTracks(g, token).then((tracks) => updateRow(`genre-${g}`, tracks));
+      searchExternalPlaylists(g, token).then((playlists) => updateGenreRow(`genre-${g}`, playlists));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, historyVersion]);
@@ -110,6 +127,31 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
           onPlay={onPlay}
         />
       ))}
+
+      {onOpenDetail &&
+        genreRows.map((row) => {
+          if (!row.loading && row.playlists.length === 0) return null;
+          return (
+            <section key={row.id} className="home-row">
+              <div className="home-row-heading">
+                <h3>{row.title}</h3>
+              </div>
+              <div className="home-row-scroll">
+                {row.loading && row.playlists.length === 0
+                  ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="home-card home-card-skeleton" />)
+                  : row.playlists.map((p) => (
+                      <EntityCard
+                        key={p.id}
+                        name={p.title}
+                        subtitle={p.track_count != null ? `${p.track_count} songs` : undefined}
+                        artworkUrl={p.artwork_url}
+                        onClick={() => onOpenDetail({ type: "playlist", providerId: p.provider_id, ref: p.id, name: p.title })}
+                      />
+                    ))}
+              </div>
+            </section>
+          );
+        })}
 
       {playlists.length > 0 && (
         <section className="home-row">

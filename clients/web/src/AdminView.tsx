@@ -7,10 +7,12 @@ import {
   getLidarrSettings,
   getOidcSettings,
   getRegistrationAllowed,
+  getYtdlpEnabled,
   listUsers,
   setLidarrSettings,
   setOidcSettings,
   setRegistrationAllowed,
+  setYtdlpEnabled,
   type LidarrQualityProfile,
   type LidarrRootFolder,
   UserInfo,
@@ -31,6 +33,7 @@ export function AdminView({ token, selfId }: Props) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [registrationAllowed, setRegistrationAllowedState] = useState(false);
+  const [ytdlpEnabled, setYtdlpEnabledState] = useState(true);
 
   const [lidarrUrl, setLidarrUrl] = useState("");
   const [lidarrApiKey, setLidarrApiKey] = useState("");
@@ -58,6 +61,7 @@ export function AdminView({ token, selfId }: Props) {
   useEffect(() => {
     refresh();
     getRegistrationAllowed().then(setRegistrationAllowedState);
+    getYtdlpEnabled(token).then(setYtdlpEnabledState);
     getLidarrSettings(token).then((s) => {
       setLidarrUrl(s.url);
       setLidarrHasApiKey(s.has_api_key);
@@ -133,6 +137,17 @@ export function AdminView({ token, selfId }: Props) {
     }
   }
 
+  async function toggleYtdlp(e: React.ChangeEvent<HTMLInputElement>) {
+    const enabled = e.target.checked;
+    setYtdlpEnabledState(enabled);
+    try {
+      await setYtdlpEnabled(token, enabled);
+    } catch (err) {
+      setYtdlpEnabledState(!enabled);
+      setError(err instanceof Error ? err.message : "Could not update setting.");
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -181,6 +196,14 @@ export function AdminView({ token, selfId }: Props) {
             <input type="checkbox" checked={registrationAllowed} onChange={toggleRegistration} />
             Allow anyone to create their own account from the login page
           </label>
+          <label>
+            <input type="checkbox" checked={ytdlpEnabled} onChange={toggleYtdlp} />
+            Enable YouTube Music search and discovery
+          </label>
+          <p className="jam-room-empty">
+            Turns off new YouTube Music content in search, discover, and genre browsing site-wide. Tracks and
+            playlists already in a queue, playlist, or likes stay playable either way.
+          </p>
         </>
       )}
 

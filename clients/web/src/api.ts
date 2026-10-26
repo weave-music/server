@@ -171,6 +171,22 @@ export async function setRegistrationAllowed(token: string, allow: boolean): Pro
   if (!res.ok) throw new Error("Could not update setting.");
 }
 
+export async function getYtdlpEnabled(token: string): Promise<boolean> {
+  const res = await fetch("/api/settings/ytdlp", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return true;
+  const data = await res.json();
+  return !!data.ytdlp_enabled;
+}
+
+export async function setYtdlpEnabled(token: string, enabled: boolean): Promise<void> {
+  const res = await fetch("/api/settings/ytdlp", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ ytdlp_enabled: enabled }),
+  });
+  if (!res.ok) throw new Error("Could not update setting.");
+}
+
 export async function getOidcLoginEnabled(): Promise<boolean> {
   const res = await fetch("/api/auth/oidc/status");
   if (!res.ok) return false;

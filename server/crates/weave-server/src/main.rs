@@ -140,6 +140,7 @@ async fn main() {
         .route("/api/lidarr/search", get(lidarr::lidarr_search))
         .route("/api/lidarr/request", post(lidarr::lidarr_request_artist))
         .route("/api/settings/registration", get(get_registration_setting).put(set_registration_setting))
+        .route("/api/settings/ytdlp", get(get_ytdlp_setting).put(set_ytdlp_setting))
         .route("/api/users", get(list_users).post(create_user))
         .route("/api/users/:id", delete(delete_user))
         .route("/api/me", get(me))
@@ -312,6 +313,48 @@ async fn set_registration_setting(
     }
 }
 
+/// Admin-controlled kill switch for the YouTube Music (yt-dlp) provider's
+/// search/discovery/genre-browsing surfaces (see migrations/0011). Checked
+/// by every handler below that proactively surfaces new YouTube content;
+/// deliberately NOT checked by `stream`/`resolve` or by per-item browse
+/// continuations (artist/album/playlist tracks) — a track, album, or
+/// playlist already referenced from a queue/playlist/likes list still
+/// works, this only stops new YouTube content from being surfaced.
+async fn ytdlp_search_enabled(db: &SqlitePool) -> bool {
+    sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'ytdlp_enabled'")
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .as_deref()
+        != Some("false")
+}
+
+#[derive(Serialize, Deserialize)]
+struct YtdlpSetting {
+    ytdlp_enabled: bool,
+}
+
+async fn get_ytdlp_setting(State(state): State<AppState>, _user: AuthUser) -> Json<YtdlpSetting> {
+    Json(YtdlpSetting { ytdlp_enabled: ytdlp_search_enabled(&state.db).await })
+}
+
+async fn set_ytdlp_setting(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(body): Json<YtdlpSetting>,
+) -> Response {
+    let value = if body.ytdlp_enabled { "true" } else { "false" };
+    match sqlx::query("UPDATE settings SET value = ? WHERE key = 'ytdlp_enabled'")
+        .bind(value)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => Json(body).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not update setting").into_response(),
+    }
+}
+
 /// Public self-registration, gated behind the admin-controlled toggle above.
 /// Always creates a non-admin account — promoting someone to admin is a
 /// separate, admin-only action via `POST /api/users`.
@@ -427,11 +470,15 @@ async fn search(
     Query(params): Query<SearchParams>,
 ) -> Json<serde_json::Value> {
     let query = SearchQuery { text: params.q, limit: 25 };
+    let ytdlp_enabled = ytdlp_search_enabled(&state.db).await;
 
     // Unified search across every configured provider (REQUIREMENTS.md §6).
     // Sequential for now; fan these out concurrently once there's more than one.
     let mut results = Vec::new();
     for provider in &state.providers {
+        if provider.id() == "ytdlp" && !ytdlp_enabled {
+            continue;
+        }
         match provider.search(&query).await {
             Ok(tracks) => results.extend(tracks),
             Err(err) => tracing::warn!(provider = provider.id(), %err, "provider search failed"),
@@ -453,9 +500,13 @@ async fn search_playlists(
     Query(params): Query<SearchParams>,
 ) -> Json<serde_json::Value> {
     let query = SearchQuery { text: params.q, limit: 15 };
+    let ytdlp_enabled = ytdlp_search_enabled(&state.db).await;
 
     let mut results = Vec::new();
     for provider in &state.providers {
+        if provider.id() == "ytdlp" && !ytdlp_enabled {
+            continue;
+        }
         match provider.search_playlists(&query).await {
             Ok(playlists) => results.extend(playlists),
             Err(err) => tracing::warn!(provider = provider.id(), %err, "provider search_playlists failed"),
@@ -470,8 +521,12 @@ async fn search_playlists(
 /// REQUIREMENTS.md §13), so this is honestly just randomized discovery, not
 /// personalized recommendations — framed that way in the UI too.
 async fn featured(State(state): State<AppState>, _user: AuthUser) -> Json<serde_json::Value> {
+    let ytdlp_enabled = ytdlp_search_enabled(&state.db).await;
     let mut results = Vec::new();
     for provider in &state.providers {
+        if provider.id() == "ytdlp" && !ytdlp_enabled {
+            continue;
+        }
         match provider.browse(8).await {
             Ok(tracks) => results.extend(tracks),
             Err(err) => tracing::warn!(provider = provider.id(), %err, "provider browse failed"),
