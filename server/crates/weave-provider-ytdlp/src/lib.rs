@@ -27,8 +27,10 @@ use weave_core::{
 // tracks plays — see App.tsx). Raw process stdout is cached in the
 // `provider_cache` table (migrations/0012) by its exact argv, so every call
 // site benefits without needing to know caching exists, and it survives a
-// server restart/redeploy rather than resetting every time.
-const CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+// server restart/redeploy rather than resetting every time. The TTL itself
+// is admin-configurable (migrations/0013, `/api/settings/cache`) rather
+// than fixed, with 0 hours meaning "disabled" — always fetch fresh.
+const DEFAULT_CACHE_TTL_HOURS: i64 = 6;
 
 /// No real recommendation engine behind "browse" (there's no play history or
 /// taste profile to draw on yet) — this just gives `browse()` something to
@@ -56,12 +58,29 @@ impl YtDlpProvider {
         Self { id: id.into(), db }
     }
 
+    async fn cache_ttl(&self) -> Duration {
+        let hours: i64 = sqlx::query_scalar::<_, String>(
+            "SELECT value FROM settings WHERE key = 'provider_cache_ttl_hours'",
+        )
+        .fetch_optional(&self.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_CACHE_TTL_HOURS);
+        Duration::from_secs(hours.max(0) as u64 * 60 * 60)
+    }
+
     async fn cache_get(&self, key: &str) -> Option<Vec<u8>> {
+        let ttl = self.cache_ttl().await;
+        if ttl.is_zero() {
+            return None;
+        }
         sqlx::query_scalar::<_, Vec<u8>>(
             "SELECT data FROM provider_cache WHERE cache_key = ? AND inserted_at > datetime('now', ?)",
         )
         .bind(key)
-        .bind(format!("-{} seconds", CACHE_TTL.as_secs()))
+        .bind(format!("-{} seconds", ttl.as_secs()))
         .fetch_optional(&self.db)
         .await
         .ok()
@@ -72,8 +91,12 @@ impl YtDlpProvider {
     // doesn't grow unboundedly over a long-running server process without
     // needing a separate background task just for that.
     async fn cache_put(&self, key: String, data: Vec<u8>) {
+        let ttl = self.cache_ttl().await;
+        if ttl.is_zero() {
+            return;
+        }
         let _ = sqlx::query("DELETE FROM provider_cache WHERE inserted_at < datetime('now', ?)")
-            .bind(format!("-{} seconds", (CACHE_TTL * 3).as_secs()))
+            .bind(format!("-{} seconds", (ttl * 3).as_secs()))
             .execute(&self.db)
             .await;
         let _ = sqlx::query(

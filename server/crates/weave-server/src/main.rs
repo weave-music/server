@@ -141,6 +141,7 @@ async fn main() {
         .route("/api/lidarr/request", post(lidarr::lidarr_request_artist))
         .route("/api/settings/registration", get(get_registration_setting).put(set_registration_setting))
         .route("/api/settings/ytdlp", get(get_ytdlp_setting).put(set_ytdlp_setting))
+        .route("/api/settings/cache", get(get_cache_setting).put(set_cache_setting))
         .route("/api/users", get(list_users).post(create_user))
         .route("/api/users/:id", delete(delete_user))
         .route("/api/me", get(me))
@@ -351,6 +352,32 @@ async fn set_ytdlp_setting(
         .await
     {
         Ok(_) => Json(body).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not update setting").into_response(),
+    }
+}
+
+/// How long YtDlpProvider caches a response for, in hours (0 = disabled —
+/// see migrations/0013). Read directly by the provider itself via the same
+/// `settings` table; this struct/route pair is just the admin-facing view
+/// onto that one value.
+#[derive(Serialize, Deserialize)]
+struct CacheSetting {
+    cache_ttl_hours: i64,
+}
+
+async fn get_cache_setting(State(state): State<AppState>, _user: AuthUser) -> Json<CacheSetting> {
+    let hours = get_setting(&state.db, "provider_cache_ttl_hours").await.parse().unwrap_or(6);
+    Json(CacheSetting { cache_ttl_hours: hours })
+}
+
+async fn set_cache_setting(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(body): Json<CacheSetting>,
+) -> Response {
+    let hours = body.cache_ttl_hours.max(0);
+    match set_setting(&state.db, "provider_cache_ttl_hours", &hours.to_string()).await {
+        Ok(_) => Json(CacheSetting { cache_ttl_hours: hours }).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not update setting").into_response(),
     }
 }

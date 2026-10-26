@@ -187,6 +187,22 @@ export async function setYtdlpEnabled(token: string, enabled: boolean): Promise<
   if (!res.ok) throw new Error("Could not update setting.");
 }
 
+export async function getCacheTtlHours(token: string): Promise<number> {
+  const res = await fetch("/api/settings/cache", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return 6;
+  const data = await res.json();
+  return data.cache_ttl_hours ?? 6;
+}
+
+export async function setCacheTtlHours(token: string, hours: number): Promise<void> {
+  const res = await fetch("/api/settings/cache", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ cache_ttl_hours: hours }),
+  });
+  if (!res.ok) throw new Error("Could not update setting.");
+}
+
 export async function getOidcLoginEnabled(): Promise<boolean> {
   const res = await fetch("/api/auth/oidc/status");
   if (!res.ok) return false;

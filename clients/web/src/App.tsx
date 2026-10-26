@@ -3,7 +3,7 @@ import { AdminView } from "./AdminView";
 import { AuthView } from "./AuthView";
 import { DetailView, type DetailTarget } from "./DetailView";
 import { DiscoverView } from "./DiscoverView";
-import { fetchArtistReleases, fetchArtistTracks, fetchRadio } from "./api";
+import { fetchArtistReleases, fetchArtistTracks, fetchRadio, getCacheTtlHours } from "./api";
 import { ChevronDownIcon, JamIcon } from "./icons";
 import { JamRoom } from "./JamRoom";
 import { dedupeMembers } from "./jamApi";
@@ -41,6 +41,14 @@ export default function App() {
   const playlistApi = usePlaylists();
   const history = useListeningHistory();
   const likes = useLikes(token);
+  // Mirrors the admin "Cache YouTube Music results for" setting — pointless
+  // to fire the background artist pre-warm below if caching itself is off,
+  // since there'd be nothing for it to warm.
+  const [cachingEnabled, setCachingEnabled] = useState(true);
+  useEffect(() => {
+    if (!token) return;
+    getCacheTtlHours(token).then((hours) => setCachingEnabled(hours > 0));
+  }, [token]);
 
   // Every change of "current track" counts as a play, regardless of which
   // view started it (search, discover, a playlist, radio...) — this is what
@@ -59,11 +67,11 @@ export default function App() {
     const track = queueApi.currentTrack;
     const providerId = track?.sources[0]?.provider_id;
     const artistRef = track?.artist_ref;
-    if (!token || !providerId || !artistRef) return;
+    if (!token || !providerId || !artistRef || !cachingEnabled) return;
     fetchArtistTracks(token, providerId, artistRef).catch(() => {});
     fetchArtistReleases(token, providerId, artistRef).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queueApi.currentTrack?.artist_ref, token]);
+  }, [queueApi.currentTrack?.artist_ref, token, cachingEnabled]);
 
   if (checking) return null;
   if (!token || !me) return <AuthView onLogin={login} onSetup={setup} onRegister={register} />;

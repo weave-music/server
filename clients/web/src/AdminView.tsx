@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   createUser,
   deleteUser,
+  getCacheTtlHours,
   getLidarrQualityProfiles,
   getLidarrRootFolders,
   getLidarrSettings,
@@ -9,6 +10,7 @@ import {
   getRegistrationAllowed,
   getYtdlpEnabled,
   listUsers,
+  setCacheTtlHours,
   setLidarrSettings,
   setOidcSettings,
   setRegistrationAllowed,
@@ -34,6 +36,7 @@ export function AdminView({ token, selfId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [registrationAllowed, setRegistrationAllowedState] = useState(false);
   const [ytdlpEnabled, setYtdlpEnabledState] = useState(true);
+  const [cacheTtlHours, setCacheTtlHoursState] = useState(6);
 
   const [lidarrUrl, setLidarrUrl] = useState("");
   const [lidarrApiKey, setLidarrApiKey] = useState("");
@@ -62,6 +65,7 @@ export function AdminView({ token, selfId }: Props) {
     refresh();
     getRegistrationAllowed().then(setRegistrationAllowedState);
     getYtdlpEnabled(token).then(setYtdlpEnabledState);
+    getCacheTtlHours(token).then(setCacheTtlHoursState);
     getLidarrSettings(token).then((s) => {
       setLidarrUrl(s.url);
       setLidarrHasApiKey(s.has_api_key);
@@ -148,6 +152,18 @@ export function AdminView({ token, selfId }: Props) {
     }
   }
 
+  async function changeCacheTtl(e: React.ChangeEvent<HTMLSelectElement>) {
+    const hours = Number(e.target.value);
+    const previous = cacheTtlHours;
+    setCacheTtlHoursState(hours);
+    try {
+      await setCacheTtlHours(token, hours);
+    } catch (err) {
+      setCacheTtlHoursState(previous);
+      setError(err instanceof Error ? err.message : "Could not update setting.");
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -203,6 +219,21 @@ export function AdminView({ token, selfId }: Props) {
           <p className="jam-room-empty">
             Turns off new YouTube Music content in search, discover, and genre browsing site-wide. Tracks and
             playlists already in a queue, playlist, or likes stay playable either way.
+          </p>
+          <label>
+            Cache YouTube Music results for
+            <select value={cacheTtlHours} onChange={changeCacheTtl}>
+              <option value={0}>never (always fetch fresh)</option>
+              <option value={1}>1 hour</option>
+              <option value={6}>6 hours</option>
+              <option value={24}>24 hours</option>
+              <option value={72}>3 days</option>
+            </select>
+          </label>
+          <p className="jam-room-empty">
+            Speeds up repeat searches, Discover, and artist pages by reusing a recent result instead of asking
+            YouTube again — "never" always fetches fresh instead, at the cost of every search/Discover load taking
+            1-2 seconds.
           </p>
         </>
       )}
