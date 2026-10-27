@@ -56,6 +56,18 @@ pub struct ReleaseSummary {
     pub is_single: bool,
 }
 
+/// An artist's releases plus their own profile photo — kept as one bundle
+/// since both come from the same `artist_releases` lookup. The photo is
+/// deliberately not just "the first track's artwork": a track's artwork is
+/// that *song's* cover art, not a picture of the artist, and using it as a
+/// stand-in meant the artist page could show a different image than
+/// whichever track represented them in search results.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ArtistProfile {
+    pub artwork_url: Option<String>,
+    pub releases: Vec<ReleaseSummary>,
+}
+
 /// A playlist search result — not a full `Track` list, just enough to show
 /// a card and open it via `MediaProvider::playlist_tracks`. Unlike
 /// `ReleaseSummary` (always browsed within an already-known provider, e.g.

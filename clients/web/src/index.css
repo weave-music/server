@@ -86,6 +86,13 @@ button {
   font-size: 0.9rem;
 }
 
+/* Themes both the thumb and the browser's native filled-progress portion
+   of every seek/volume slider to match the app's accent color, instead of
+   each browser's own default (blue on most). */
+input[type="range"] {
+  accent-color: #1db954;
+}
+
 /* 16px prevents iOS Safari from zooming the page in on focus. */
 input,
 select {
@@ -136,6 +143,13 @@ button:disabled {
   gap: 0.75rem;
   min-width: 0;
   flex: 1;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .artwork {
@@ -199,8 +213,8 @@ button:disabled {
   transition: background 0.15s ease;
 }
 
-.track-play:hover .track-play-overlay,
-.track-play:focus-visible .track-play-overlay {
+.track-main:hover .track-play-overlay,
+.track-main:focus-visible .track-play-overlay {
   background: rgba(0, 0, 0, 0.5);
 }
 
@@ -516,6 +530,11 @@ form label {
   gap: 0.3rem;
   font-size: 0.9rem;
   color: #ccc;
+}
+
+.auth-remember-me {
+  width: 100%;
+  justify-content: center;
 }
 
 .home-feed {
@@ -935,12 +954,20 @@ form label {
   display: flex;
   gap: 0.5rem;
   margin-bottom: 1rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.filter-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .filter-tabs button {
   border-radius: 999px;
   background: #1e1e1e;
   color: #ccc;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .filter-tabs button.active {
@@ -1204,6 +1231,19 @@ form label {
   form {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  /* A row of pills this wide (All/Songs/Artists/Albums/Playlists, each
+     with a count) doesn't fit a phone screen — scrolls horizontally
+     instead of wrapping into a messy multi-row block or overflowing. */
+  .filter-tabs {
+    margin: 0 -1rem 1rem;
+    padding: 0 1rem;
+  }
+
+  .filter-tabs button {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
   }
 
   /* Track rows: title/tag stay on one line, actions wrap to their own

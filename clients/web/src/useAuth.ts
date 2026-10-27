@@ -23,8 +23,21 @@ function adoptTokenFromUrl(): string | null {
   return token;
 }
 
+// "Remember me" unchecked keeps the token in sessionStorage instead of
+// localStorage — gone once the browser/tab closes, same as not checking the
+// box anywhere else. Checking both on read means a token survives whichever
+// one it was written to.
+function readStoredToken(): string | null {
+  return localStorage.getItem(STORAGE_KEY) ?? sessionStorage.getItem(STORAGE_KEY);
+}
+
+function clearStoredToken() {
+  localStorage.removeItem(STORAGE_KEY);
+  sessionStorage.removeItem(STORAGE_KEY);
+}
+
 export function useAuth() {
-  const [token, setToken] = useState<string | null>(() => adoptTokenFromUrl() ?? localStorage.getItem(STORAGE_KEY));
+  const [token, setToken] = useState<string | null>(() => adoptTokenFromUrl() ?? readStoredToken());
   const [me, setMe] = useState<Me | null>(null);
   const [checking, setChecking] = useState(true);
 
@@ -42,13 +55,18 @@ export function useAuth() {
     fetchMe(token)
       .then(setMe)
       .catch(() => {
-        localStorage.removeItem(STORAGE_KEY);
+        clearStoredToken();
         setToken(null);
       })
       .finally(() => setChecking(false));
   }, [token, fetchMe]);
 
-  async function authenticate(path: "login" | "setup" | "register", username: string, password: string) {
+  async function authenticate(
+    path: "login" | "setup" | "register",
+    username: string,
+    password: string,
+    remember = true,
+  ) {
     const res = await fetch(`/api/auth/${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,12 +82,16 @@ export function useAuth() {
       throw new Error(message);
     }
     const data = await res.json();
-    localStorage.setItem(STORAGE_KEY, data.token);
+    clearStoredToken();
+    (remember ? localStorage : sessionStorage).setItem(STORAGE_KEY, data.token);
     setToken(data.token);
     setMe(await fetchMe(data.token));
   }
 
-  const login = useCallback((username: string, password: string) => authenticate("login", username, password), []);
+  const login = useCallback(
+    (username: string, password: string, remember: boolean) => authenticate("login", username, password, remember),
+    [],
+  );
   const setup = useCallback((username: string, password: string) => authenticate("setup", username, password), []);
   const register = useCallback(
     (username: string, password: string) => authenticate("register", username, password),
@@ -77,7 +99,7 @@ export function useAuth() {
   );
 
   const logout = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
+    clearStoredToken();
     setToken(null);
     setMe(null);
   }, []);

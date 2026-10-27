@@ -69,7 +69,20 @@ def cmd_artist(channel_id):
             )
         return out
 
-    print(json.dumps({"songs": songs, "releases": releases("albums", False) + releases("singles", True)}))
+    print(
+        json.dumps(
+            {
+                "songs": songs,
+                "releases": releases("albums", False) + releases("singles", True),
+                # The artist's own profile photo — distinct from any song's
+                # thumbnail, which `tracks[0]?.artwork_url` was standing in
+                # for before (and often didn't match what search had shown
+                # for the same artist, since that came from a different
+                # track entirely).
+                "artist_artwork_url": best_thumbnail(artist.get("thumbnails")),
+            }
+        )
+    )
 
 
 def playlist_entry(r):

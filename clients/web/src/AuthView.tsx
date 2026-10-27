@@ -4,7 +4,7 @@ import { getOidcLoginEnabled, getRegistrationAllowed, getSetupComplete, oidcLogi
 type Mode = "login" | "setup" | "register";
 
 interface Props {
-  onLogin: (username: string, password: string) => Promise<void>;
+  onLogin: (username: string, password: string, remember: boolean) => Promise<void>;
   onSetup: (username: string, password: string) => Promise<void>;
   onRegister: (username: string, password: string) => Promise<void>;
 }
@@ -16,6 +16,7 @@ export function AuthView({ onLogin, onSetup, onRegister }: Props) {
   const [ssoEnabled, setSsoEnabled] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -30,7 +31,7 @@ export function AuthView({ onLogin, onSetup, onRegister }: Props) {
     setError(null);
     setBusy(true);
     try {
-      if (mode === "login") await onLogin(username, password);
+      if (mode === "login") await onLogin(username, password, rememberMe);
       else if (mode === "setup") await onSetup(username, password);
       else await onRegister(username, password);
     } catch (err) {
@@ -59,6 +60,12 @@ export function AuthView({ onLogin, onSetup, onRegister }: Props) {
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password"
         />
+        {mode === "login" && (
+          <label className="auth-remember-me">
+            <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+            Remember me
+          </label>
+        )}
         <button type="submit" disabled={busy}>
           {submitLabel}
         </button>

@@ -83,13 +83,27 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
     // seed a recommendation off of.
     async function loadRecap() {
       const liked = await fetchLikes(token).catch(() => [] as Track[]);
-      const recent = history.getRecentTracks(10);
-      const seeds: Track[] = [];
-      const seedKeys = new Set<string>();
-      for (const t of [...liked, ...recent]) {
+      const recentForSeeds = history.getRecentTracks(10);
+
+      // Everything already liked or recently played — excluded from the
+      // final results below so this row is actually new material, not a
+      // reminder of what's already on repeat.
+      const alreadyKnown = new Set<string>();
+      for (const t of [...liked, ...history.getRecentTracks(50)]) {
         const key = sourceKey(t);
-        if (!key || seedKeys.has(key)) continue;
-        seedKeys.add(key);
+        if (key) alreadyKnown.add(key);
+      }
+
+      // Seeds are diversified by artist (not just by exact track) — four
+      // seeds that are all "more of the one artist on repeat" just narrows
+      // the radio results down to that same small cluster instead of
+      // surfacing anything new.
+      const seeds: Track[] = [];
+      const seenArtists = new Set<string>();
+      for (const t of [...liked, ...recentForSeeds]) {
+        const diversityKey = t.artist_name ?? sourceKey(t);
+        if (!diversityKey || seenArtists.has(diversityKey)) continue;
+        seenArtists.add(diversityKey);
         seeds.push(t);
         if (seeds.length >= 4) break;
       }
@@ -101,7 +115,7 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
 
       const batches = await Promise.all(seeds.map((t) => fetchRadio(token, t)));
       const merged: Track[] = [];
-      const seen = new Set(seedKeys);
+      const seen = new Set(alreadyKnown);
       for (const batch of batches) {
         for (const t of batch) {
           const key = sourceKey(t);
@@ -111,7 +125,7 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
           }
         }
       }
-      updateRow("recap", shuffled(merged).slice(0, 20), "Based on what you play and like");
+      updateRow("recap", shuffled(merged).slice(0, 20), "New picks based on what you play and like");
     }
     loadRecap();
     seedArtists.forEach((r, i) => {

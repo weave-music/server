@@ -50,7 +50,7 @@ function loadSearchHistory(): string[] {
   }
 }
 
-type FilterTab = "all" | "songs" | "artists" | "albums" | "playlists" | "ytplaylists";
+type FilterTab = "all" | "songs" | "artists" | "albums" | "playlists";
 
 interface Props {
   token: string;
@@ -219,6 +219,11 @@ export function SearchView({
 
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
+    // Hide the suggestions dropdown immediately on submit (Enter or the
+    // Search button) — it's only useful while actively typing in the box,
+    // not once real results are about to replace it below.
+    setSearchFocused(false);
+    (document.activeElement as HTMLElement | null)?.blur();
     void performSearch(query);
   }
 
@@ -376,14 +381,9 @@ export function SearchView({
               Albums ({albums.length})
             </button>
           )}
-          {matchingPlaylists.length > 0 && (
+          {(matchingPlaylists.length > 0 || externalPlaylists.length > 0) && (
             <button className={tab === "playlists" ? "active" : ""} onClick={() => setTab("playlists")}>
-              Playlists ({matchingPlaylists.length})
-            </button>
-          )}
-          {externalPlaylists.length > 0 && (
-            <button className={tab === "ytplaylists" ? "active" : ""} onClick={() => setTab("ytplaylists")}>
-              YouTube Music ({externalPlaylists.length})
+              Playlists ({matchingPlaylists.length + externalPlaylists.length})
             </button>
           )}
         </div>
@@ -524,14 +524,24 @@ export function SearchView({
       )}
 
       {tab === "playlists" && (
-        <ul className="entity-list">
-          {matchingPlaylists.map((pl) =>
-            playlistButton(pl.id, pl.name, pl.tracks, playlistMatchReason(pl, committedQuery.trim().toLowerCase())),
+        <>
+          {matchingPlaylists.length > 0 && (
+            <ul className="entity-list">
+              {matchingPlaylists.map((pl) =>
+                playlistButton(
+                  pl.id,
+                  pl.name,
+                  pl.tracks,
+                  playlistMatchReason(pl, committedQuery.trim().toLowerCase()),
+                ),
+              )}
+            </ul>
           )}
-        </ul>
+          {externalPlaylists.length > 0 && (
+            <div className="home-row-scroll">{externalPlaylists.map(externalPlaylistCard)}</div>
+          )}
+        </>
       )}
-
-      {tab === "ytplaylists" && <div className="home-row-scroll">{externalPlaylists.map(externalPlaylistCard)}</div>}
 
       {lidarrEnabled && committedQuery && (tab === "all" || tab === "songs") && (
         <section className="home-row lidarr-request-row">

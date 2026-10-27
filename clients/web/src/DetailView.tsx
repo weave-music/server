@@ -78,6 +78,7 @@ export function DetailView({
   const [loading, setLoading] = useState(true);
   const [similarArtists, setSimilarArtists] = useState<Track[]>([]);
   const [releases, setReleases] = useState<ReleaseSummary[]>([]);
+  const [artistArtworkUrl, setArtistArtworkUrl] = useState<string | null>(null);
   const [addingAlbum, setAddingAlbum] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [artistPage, setArtistPage] = useState(0);
@@ -87,6 +88,7 @@ export function DetailView({
     setLoading(true);
     setSimilarArtists([]);
     setReleases([]);
+    setArtistArtworkUrl(null);
     setArtistPage(0);
     const fetcher =
       target.type === "artist" ? fetchArtistTracks : target.type === "album" ? fetchAlbumTracks : fetchPlaylistTracks;
@@ -111,7 +113,10 @@ export function DetailView({
     });
 
     if (target.type === "artist") {
-      fetchArtistReleases(token, target.providerId, target.ref).then(setReleases);
+      fetchArtistReleases(token, target.providerId, target.ref).then((profile) => {
+        setReleases(profile.releases);
+        setArtistArtworkUrl(profile.artworkUrl);
+      });
     }
   }, [target.type, target.providerId, target.ref, token]);
 
@@ -178,7 +183,7 @@ export function DetailView({
         </div>
 
         <div className="artist-hero">
-          <Artwork url={tracks[0]?.artwork_url ?? null} size="lg" alt="" />
+          <Artwork url={artistArtworkUrl ?? tracks[0]?.artwork_url ?? null} size="lg" alt="" />
           <h2>{target.name}</h2>
           <div className="artist-stats">
             <span>{tracks.length >= 50 ? "50+" : tracks.length} songs</span>

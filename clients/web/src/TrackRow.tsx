@@ -16,14 +16,14 @@ export function TrackRow({ track, onPlay, isCurrent, children }: Props) {
   const source = track.sources[0];
   return (
     <li className={isCurrent ? "current" : ""}>
-      <div className="track-main">
-        <button className="track-play" onClick={onPlay} title="Play now">
+      <button className="track-main" onClick={onPlay} title="Play now">
+        <span className="track-play">
           <Artwork url={track.artwork_url} alt="" />
           <span className="track-play-overlay">{isCurrent ? "♪" : "▶"}</span>
-        </button>
+        </span>
         <span className="track-title">{track.title}</span>
         {source && <span className="tag">{source.is_local ? "local" : "streamed"}</span>}
-      </div>
+      </button>
       {children && <div className="track-actions">{children}</div>}
     </li>
   );

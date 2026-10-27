@@ -663,7 +663,10 @@ async fn artist_releases(
         return (StatusCode::NOT_FOUND, "unknown provider").into_response();
     };
     match provider.artist_releases(&params.item_ref).await {
-        Ok(releases) => Json(serde_json::json!({ "releases": releases })).into_response(),
+        Ok(profile) => {
+            Json(serde_json::json!({ "releases": profile.releases, "artwork_url": profile.artwork_url }))
+                .into_response()
+        }
         Err(err) => {
             tracing::warn!(provider = params.provider, %err, "artist_releases failed");
             (StatusCode::NOT_FOUND, "could not load releases").into_response()

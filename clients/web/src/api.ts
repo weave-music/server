@@ -98,18 +98,23 @@ export async function fetchPlaylistTracks(token: string, providerId: string, pla
   return data.results ?? [];
 }
 
+export interface ArtistProfile {
+  releases: ReleaseSummary[];
+  artworkUrl: string | null;
+}
+
 export async function fetchArtistReleases(
   token: string,
   providerId: string,
   artistRef: string,
-): Promise<ReleaseSummary[]> {
+): Promise<ArtistProfile> {
   const params = new URLSearchParams({ provider: providerId, ref: artistRef });
   const res = await fetch(`/api/artist/releases?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) return [];
+  if (!res.ok) return { releases: [], artworkUrl: null };
   const data = await res.json();
-  return data.releases ?? [];
+  return { releases: data.releases ?? [], artworkUrl: data.artwork_url ?? null };
 }
 
 export interface PlaybackState {

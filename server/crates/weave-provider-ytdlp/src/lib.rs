@@ -16,7 +16,8 @@ use std::time::Duration;
 use tokio::process::Command;
 use uuid::Uuid;
 use weave_core::{
-    MediaProvider, PlaylistSummary, ProviderError, ProviderKind, ReleaseSummary, SearchQuery, Track, TrackSource,
+    ArtistProfile, MediaProvider, PlaylistSummary, ProviderError, ProviderKind, ReleaseSummary, SearchQuery, Track,
+    TrackSource,
 };
 
 // Every call this provider makes is a real round trip to YouTube (via
@@ -295,6 +296,7 @@ struct BridgeRelease {
 struct BridgeArtistResponse {
     songs: Vec<BridgeSong>,
     releases: Vec<BridgeRelease>,
+    artist_artwork_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -455,20 +457,24 @@ impl MediaProvider for YtDlpProvider {
             .collect())
     }
 
-    /// An artist's real Albums/Singles catalog via YouTube Music.
-    async fn artist_releases(&self, artist_ref: &str) -> Result<Vec<ReleaseSummary>, ProviderError> {
+    /// An artist's real Albums/Singles catalog plus their own profile
+    /// photo via YouTube Music.
+    async fn artist_releases(&self, artist_ref: &str) -> Result<ArtistProfile, ProviderError> {
         let data: BridgeArtistResponse = self.run_bridge(&["artist", artist_ref]).await?;
-        Ok(data
-            .releases
-            .into_iter()
-            .map(|r| ReleaseSummary {
-                id: r.id,
-                title: r.title,
-                artwork_url: r.artwork_url,
-                year: r.year,
-                is_single: r.is_single,
-            })
-            .collect())
+        Ok(ArtistProfile {
+            artwork_url: data.artist_artwork_url,
+            releases: data
+                .releases
+                .into_iter()
+                .map(|r| ReleaseSummary {
+                    id: r.id,
+                    title: r.title,
+                    artwork_url: r.artwork_url,
+                    year: r.year,
+                    is_single: r.is_single,
+                })
+                .collect(),
+        })
     }
 
     /// Playlist search via YouTube Music's own internal API — same
