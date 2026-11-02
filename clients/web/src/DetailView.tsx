@@ -5,6 +5,7 @@ import { EntityCard } from "./EntityCard";
 import { ChevronLeftIcon, HeartFilledIcon, HeartIcon, PlayIcon, RadioIcon, ShareIcon, ShuffleIcon } from "./icons";
 import { LikeButton } from "./LikeButton";
 import { useLikesContext } from "./LikesContext";
+import { Spinner } from "./Spinner";
 import { TrackOverflowMenu } from "./TrackOverflowMenu";
 import { TrackRow } from "./TrackRow";
 import type { Playlist } from "./usePlaylists";
@@ -208,7 +209,11 @@ export function DetailView({
           )}
         </div>
 
-        {loading && tracks.length === 0 && <p className="detail-view-note">Loading…</p>}
+        {loading && tracks.length === 0 && (
+          <p className="detail-view-note">
+            <Spinner /> Loading…
+          </p>
+        )}
         {emptyNote}
 
         {tracks.length > 0 && (
@@ -377,7 +382,11 @@ export function DetailView({
         </div>
       </div>
 
-      {loading && tracks.length === 0 && <p className="detail-view-note">Loading…</p>}
+      {loading && tracks.length === 0 && (
+          <p className="detail-view-note">
+            <Spinner /> Loading…
+          </p>
+        )}
       {emptyNote}
 
       <ul className="track-list">

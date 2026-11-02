@@ -36,7 +36,10 @@ export function AdminView({ token, selfId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [registrationAllowed, setRegistrationAllowedState] = useState(false);
   const [ytdlpEnabled, setYtdlpEnabledState] = useState(true);
-  const [cacheTtlHours, setCacheTtlHoursState] = useState(6);
+  // String, not number, so the field can be legitimately blank — blank
+  // means "never expire" (sent to the server as -1; see cache_ttl() in
+  // weave-provider-ytdlp), distinct from 0 which means "disabled".
+  const [cacheTtlInput, setCacheTtlInput] = useState("6");
 
   const [lidarrUrl, setLidarrUrl] = useState("");
   const [lidarrApiKey, setLidarrApiKey] = useState("");
@@ -65,7 +68,7 @@ export function AdminView({ token, selfId }: Props) {
     refresh();
     getRegistrationAllowed().then(setRegistrationAllowedState);
     getYtdlpEnabled(token).then(setYtdlpEnabledState);
-    getCacheTtlHours(token).then(setCacheTtlHoursState);
+    getCacheTtlHours(token).then((hours) => setCacheTtlInput(hours === -1 ? "" : String(hours)));
     getLidarrSettings(token).then((s) => {
       setLidarrUrl(s.url);
       setLidarrHasApiKey(s.has_api_key);
@@ -152,14 +155,13 @@ export function AdminView({ token, selfId }: Props) {
     }
   }
 
-  async function changeCacheTtl(e: React.ChangeEvent<HTMLSelectElement>) {
-    const hours = Number(e.target.value);
-    const previous = cacheTtlHours;
-    setCacheTtlHoursState(hours);
+  async function saveCacheTtl() {
+    const trimmed = cacheTtlInput.trim();
+    const hours = trimmed === "" ? -1 : Math.max(0, Number(trimmed) | 0);
     try {
       await setCacheTtlHours(token, hours);
+      setCacheTtlInput(hours === -1 ? "" : String(hours));
     } catch (err) {
-      setCacheTtlHoursState(previous);
       setError(err instanceof Error ? err.message : "Could not update setting.");
     }
   }
@@ -222,18 +224,22 @@ export function AdminView({ token, selfId }: Props) {
           </p>
           <label>
             Cache YouTube Music results for
-            <select value={cacheTtlHours} onChange={changeCacheTtl}>
-              <option value={0}>never (always fetch fresh)</option>
-              <option value={1}>1 hour</option>
-              <option value={6}>6 hours</option>
-              <option value={24}>24 hours</option>
-              <option value={72}>3 days</option>
-            </select>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              inputMode="numeric"
+              placeholder="blank = never expire"
+              value={cacheTtlInput}
+              onChange={(e) => setCacheTtlInput(e.target.value)}
+              onBlur={saveCacheTtl}
+            />
+            hours
           </label>
           <p className="jam-room-empty">
             Speeds up repeat searches, Discover, and artist pages by reusing a recent result instead of asking
-            YouTube again — "never" always fetches fresh instead, at the cost of every search/Discover load taking
-            1-2 seconds.
+            YouTube again — 0 always fetches fresh instead, at the cost of every search/Discover load taking 1-2
+            seconds; leave blank to cache indefinitely.
           </p>
         </>
       )}
@@ -342,6 +348,9 @@ export function AdminView({ token, selfId }: Props) {
               <li key={u.id}>
                 <span className="track-title">
                   {u.username} {u.is_admin && <span className="tag">admin</span>}
+                </span>
+                <span className="jam-room-empty">
+                  {u.liked_count} liked song{u.liked_count === 1 ? "" : "s"}
                 </span>
                 <button onClick={() => remove(u.id)} disabled={u.id === selfId} title="Delete user">
                   ✕

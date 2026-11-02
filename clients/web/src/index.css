@@ -132,6 +132,10 @@ button:disabled {
   border-bottom: 1px solid #222;
 }
 
+.track-list li:hover {
+  background: #2a2a2a;
+}
+
 .track-list li.current .track-title {
   color: #1db954;
   font-weight: 600;
@@ -668,13 +672,13 @@ form label {
 }
 
 .now-playing-topbar button svg {
-  width: 1.4em;
-  height: 1.4em;
+  width: 22px;
+  height: 22px;
   margin: 0;
 }
 
 .now-playing-spacer {
-  width: 2.4em;
+  width: 38px;
 }
 
 .now-playing-jam-banner {
@@ -695,8 +699,8 @@ form label {
 }
 
 .now-playing-jam-banner svg {
-  width: 1.1em;
-  height: 1.1em;
+  width: 18px;
+  height: 18px;
   margin: 0;
 }
 
@@ -795,8 +799,8 @@ form label {
 }
 
 .now-playing-transport button svg {
-  width: 1.3em;
-  height: 1.3em;
+  width: 21px;
+  height: 21px;
   margin: 0;
 }
 
@@ -816,8 +820,8 @@ form label {
 }
 
 .now-playing-play svg {
-  width: 1.6em !important;
-  height: 1.6em !important;
+  width: 26px !important;
+  height: 26px !important;
 }
 
 .repeat-one-badge {
@@ -950,6 +954,23 @@ form label {
   }
 }
 
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #eee;
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .filter-tabs {
   display: flex;
   gap: 0.5rem;
@@ -991,6 +1012,10 @@ form label {
   background: none;
   border: none;
   text-align: left;
+}
+
+.entity-row:hover {
+  background: #2a2a2a;
 }
 
 .entity-row .artwork {
@@ -1363,8 +1388,7 @@ form label {
 
   /* Room for the stacked player bar + bottom tab bar, same as .app. */
   .detail-view,
-  .jam-room,
-  .jam-start-cta {
+  .jam-room {
     padding-bottom: calc(190px + env(safe-area-inset-bottom));
   }
 }
@@ -1381,8 +1405,8 @@ form label {
 }
 
 .app-jam-button svg {
-  width: 1.1em;
-  height: 1.1em;
+  width: 18px;
+  height: 18px;
   margin: 0;
 }
 
@@ -1390,8 +1414,7 @@ form label {
 /* z-index below .player-bar (18), same as .detail-view — so the player
    bar (and, on mobile, the bottom tab nav) stays visible/usable while the
    jam panel is open, instead of being covered by it. */
-.jam-room,
-.jam-start-cta {
+.jam-room {
   position: fixed;
   inset: 0;
   z-index: 15;
@@ -1420,8 +1443,8 @@ form label {
 }
 
 .jam-room-topbar button svg {
-  width: 1.4em;
-  height: 1.4em;
+  width: 22px;
+  height: 22px;
   margin: 0;
 }
 
@@ -1519,6 +1542,11 @@ form label {
   font-size: 0.95rem;
 }
 
+.jam-room-section .track-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
 .jam-member-list {
   display: flex;
   flex-wrap: wrap;
@@ -1592,8 +1620,8 @@ form label {
 }
 
 .jam-now-playing-controls button svg {
-  width: 1.3em;
-  height: 1.3em;
+  width: 21px;
+  height: 21px;
   margin: 0;
 }
 
@@ -1660,41 +1688,6 @@ form label {
 
 .jam-room-search-form {
   margin-bottom: 0.75rem;
-}
-
-.jam-start-cta {
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 0.75rem;
-}
-
-.jam-start-cta-close {
-  position: absolute;
-  top: 1rem;
-  left: 1rem;
-  background: none;
-  border: none;
-  padding: 0.5rem;
-}
-
-.jam-start-cta-close svg {
-  width: 1.4em;
-  height: 1.4em;
-  margin: 0;
-}
-
-.jam-start-cta p {
-  color: #999;
-  max-width: 320px;
-}
-
-.jam-start-cta-button {
-  background: #1db954;
-  color: #000;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.65rem 1.75rem;
 }
 
 .jam-guest-entry {

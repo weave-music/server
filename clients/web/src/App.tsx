@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import type { DetailTarget } from "./DetailView";
 import { DiscoverView } from "./DiscoverView";
 import { fetchArtistReleases, fetchArtistTracks, fetchRadio, getCacheTtlHours } from "./api";
-import { ChevronDownIcon, JamIcon } from "./icons";
+import { JamIcon } from "./icons";
 import { dedupeMembers } from "./jamApi";
 import { LikesProvider } from "./LikesContext";
 import { NavTabs } from "./NavTabs";
@@ -52,8 +52,48 @@ export default function App() {
   const [cachingEnabled, setCachingEnabled] = useState(true);
   useEffect(() => {
     if (!token) return;
-    getCacheTtlHours(token).then((hours) => setCachingEnabled(hours > 0));
+    getCacheTtlHours(token).then((hours) => setCachingEnabled(hours !== 0));
   }, [token]);
+
+  // Global playback shortcuts — ignored while typing in a text field so
+  // e.g. hitting space in the search box still types a space instead of
+  // toggling playback.
+  useEffect(() => {
+    function isTextInput(el: Element | null): boolean {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (isTextInput(document.activeElement)) return;
+      switch (e.code) {
+        case "Space":
+          e.preventDefault();
+          queueApi.togglePlay();
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          queueApi.setVolume(Math.min(1, queueApi.volume + 0.05));
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          queueApi.setVolume(Math.max(0, queueApi.volume - 0.05));
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          queueApi.prev();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          queueApi.next();
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [queueApi]);
 
   // Every change of "current track" counts as a play, regardless of which
   // view started it (search, discover, a playlist, radio...) — this is what
@@ -91,18 +131,17 @@ export default function App() {
   // sits below Now Playing/Detail in z-index (so the player bar can show
   // through it), so leaving one of those open would otherwise hide the
   // jam panel this is meant to bring to the front.
-  function openJamPanel() {
-    setNowPlayingOpen(false);
-    setDetail(null);
-    setJamPanelOpen(true);
-  }
-
-  async function startJamFromMenu() {
+  // Starts a jam immediately if one isn't already running, rather than
+  // showing a confirmation screen first — there's nothing to confirm, the
+  // worst case is an accidental jam that "End Jam" closes right back out of.
+  async function openJamPanel() {
     setNowPlayingOpen(false);
     setDetail(null);
     if (!jamApi.jam) await jamApi.startJam();
     setJamPanelOpen(true);
   }
+
+  const startJamFromMenu = openJamPanel;
 
   // While acting as a jam remote, this device has nothing real to play
   // locally — tapping a track in Discover should queue it on the actual
@@ -303,47 +342,29 @@ export default function App() {
           </Suspense>
         )}
 
-        {jamPanelOpen && (
-          jamApi.jam ? (
-            <Suspense fallback={null}>
-              <JamRoom
-                searchToken={token}
-                members={jamApi.members}
-                queueLog={jamApi.queueLog}
-                live={jamApi.live}
-                recommendations={jamApi.recommendations}
-                ended={jamApi.ended}
-                onAddTrack={jamApi.addTrack}
-                isHost
-                onCommand={jamApi.sendCommand}
-                isSource={jamApi.isSource}
-                settings={jamApi.settings}
-                onUpdateSettings={jamApi.updateSettings}
-                joinUrl={jamApi.joinUrl}
-                onEndJam={() => {
-                  jamApi.endJam();
-                  setJamPanelOpen(false);
-                }}
-                onClose={() => setJamPanelOpen(false)}
-              />
-            </Suspense>
-          ) : (
-            <div className="jam-start-cta">
-              <button onClick={() => setJamPanelOpen(false)} title="Close" className="jam-start-cta-close">
-                <ChevronDownIcon />
-              </button>
-              <h2>Start a Jam</h2>
-              <p>Invite people to add songs to your queue from their own phones.</p>
-              <button
-                className="jam-start-cta-button"
-                onClick={async () => {
-                  await jamApi.startJam();
-                }}
-              >
-                Start Jam
-              </button>
-            </div>
-          )
+        {jamPanelOpen && jamApi.jam && (
+          <Suspense fallback={null}>
+            <JamRoom
+              searchToken={token}
+              members={jamApi.members}
+              queueLog={jamApi.queueLog}
+              live={jamApi.live}
+              recommendations={jamApi.recommendations}
+              ended={jamApi.ended}
+              onAddTrack={jamApi.addTrack}
+              isHost
+              onCommand={jamApi.sendCommand}
+              isSource={jamApi.isSource}
+              settings={jamApi.settings}
+              onUpdateSettings={jamApi.updateSettings}
+              joinUrl={jamApi.joinUrl}
+              onEndJam={() => {
+                jamApi.endJam();
+                setJamPanelOpen(false);
+              }}
+              onClose={() => setJamPanelOpen(false)}
+            />
+          </Suspense>
         )}
 
         {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}

@@ -9,6 +9,15 @@ export function nextRepeatMode(mode: RepeatMode): RepeatMode {
   return mode === "off" ? "all" : mode === "all" ? "one" : "off";
 }
 
+function shuffleIds(ids: string[]): string[] {
+  const copy = [...ids];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 interface PlaybackBroadcast {
   device_id: string;
   track: Track;
@@ -49,6 +58,11 @@ export function useQueue(token: string | null) {
   // Tracks played before the current one while shuffling, so "previous"
   // can undo a shuffled jump instead of just going sequentially backward.
   const shuffleHistoryRef = useRef<string[]>([]);
+  // Ids still owed a play this shuffle cycle — refilled (as a fresh
+  // Fisher-Yates order of whatever's left in the queue) whenever it runs
+  // dry, so every track plays once before any of them repeat instead of
+  // picking uniformly at random with replacement every time.
+  const shuffleBagRef = useRef<string[]>([]);
 
   const currentIndex = queue.findIndex((t) => t.id === currentTrackId);
   const currentTrack = currentIndex >= 0 ? queue[currentIndex] : null;
@@ -264,9 +278,15 @@ export function useQueue(token: string | null) {
         if (q.length === 0) return id;
         if (shuffleRef.current) {
           if (id) shuffleHistoryRef.current.push(id);
-          const remaining = q.filter((t) => t.id !== id);
-          if (remaining.length === 0) return id;
-          return remaining[Math.floor(Math.random() * remaining.length)].id;
+          // Drop ids no longer in the queue (tracks removed since the bag
+          // was last filled) before deciding whether it needs a refill.
+          shuffleBagRef.current = shuffleBagRef.current.filter((bagId) => q.some((t) => t.id === bagId));
+          if (shuffleBagRef.current.length === 0) {
+            const remaining = q.filter((t) => t.id !== id).map((t) => t.id);
+            if (remaining.length === 0) return id;
+            shuffleBagRef.current = shuffleIds(remaining);
+          }
+          return shuffleBagRef.current.pop()!;
         }
         const idx = q.findIndex((t) => t.id === id);
         if (idx >= 0 && idx + 1 < q.length) return q[idx + 1].id;

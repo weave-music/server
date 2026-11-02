@@ -37,6 +37,14 @@ use weave_core::{
 // than fixed, with 0 hours meaning "disabled" — always fetch fresh.
 const DEFAULT_CACHE_TTL_HOURS: i64 = 6;
 
+// Sentinel stored in the `provider_cache_ttl_hours` setting for "never
+// expire" (distinct from 0, which already means "disabled/always fetch
+// fresh"). cache_ttl() maps this to a long-but-finite duration rather than
+// Duration::MAX — cache_put()'s sweep multiplies the TTL by 3, and
+// SQLite's `datetime('now', '-N seconds')` modifier needs a sane N.
+const UNLIMITED_CACHE_TTL_SENTINEL: i64 = -1;
+const UNLIMITED_CACHE_TTL: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
+
 // Resolved direct-audio URLs carry their own short-lived expiry on YouTube's
 // side; cache them for less than the (admin-configurable, often much longer)
 // metadata TTL above so replays are instant without ever serving an expired
@@ -163,6 +171,9 @@ impl YtDlpProvider {
         .flatten()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_CACHE_TTL_HOURS);
+        if hours == UNLIMITED_CACHE_TTL_SENTINEL {
+            return UNLIMITED_CACHE_TTL;
+        }
         Duration::from_secs(hours.max(0) as u64 * 60 * 60)
     }
 

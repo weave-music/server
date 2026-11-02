@@ -385,7 +385,11 @@ async fn set_cache_setting(
     _admin: AdminUser,
     Json(body): Json<CacheSetting>,
 ) -> Response {
-    let hours = body.cache_ttl_hours.max(0);
+    // -1 is the sentinel for "never expire" (see weave-provider-ytdlp's
+    // cache_ttl()); any other negative value collapses to that same
+    // sentinel rather than silently clamping to 0 ("disabled"), which is a
+    // very different meaning.
+    let hours = if body.cache_ttl_hours < 0 { -1 } else { body.cache_ttl_hours };
     match set_setting(&state.db, "provider_cache_ttl_hours", &hours.to_string()).await {
         Ok(_) => Json(CacheSetting { cache_ttl_hours: hours }).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not update setting").into_response(),
@@ -435,6 +439,7 @@ struct UserInfo {
     username: String,
     is_admin: bool,
     created_at: String,
+    liked_count: i64,
 }
 
 async fn create_user(State(state): State<AppState>, _admin: AdminUser, Json(new_user): Json<NewUser>) -> Response {
@@ -465,9 +470,14 @@ async fn create_user(State(state): State<AppState>, _admin: AdminUser, Json(new_
 }
 
 async fn list_users(State(state): State<AppState>, _admin: AdminUser) -> Response {
-    match sqlx::query_as::<_, UserInfo>("SELECT id, username, is_admin, created_at FROM users ORDER BY created_at")
-        .fetch_all(&state.db)
-        .await
+    match sqlx::query_as::<_, UserInfo>(
+        "SELECT u.id, u.username, u.is_admin, u.created_at, COALESCE(l.cnt, 0) AS liked_count \
+         FROM users u \
+         LEFT JOIN (SELECT user_id, COUNT(*) AS cnt FROM liked_tracks GROUP BY user_id) l ON l.user_id = u.id \
+         ORDER BY u.created_at",
+    )
+    .fetch_all(&state.db)
+    .await
     {
         Ok(users) => Json(users).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not list users").into_response(),

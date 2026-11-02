@@ -11,6 +11,7 @@ import { Artwork } from "./Artwork";
 import type { DetailTarget } from "./DetailView";
 import { EntityCard } from "./EntityCard";
 import { LikeButton } from "./LikeButton";
+import { Spinner } from "./Spinner";
 import { TrackOverflowMenu } from "./TrackOverflowMenu";
 import { TrackRow } from "./TrackRow";
 import type { Playlist } from "./usePlaylists";
@@ -303,7 +304,13 @@ export function SearchView({
           aria-label="Search your library and providers"
         />
         <button type="submit" disabled={loading}>
-          {loading ? "Searching…" : "Search"}
+          {loading ? (
+            <>
+              <Spinner /> Searching…
+            </>
+          ) : (
+            "Search"
+          )}
         </button>
         {results.length > 0 && (
           <button type="button" onClick={() => onPlayAll(results)}>

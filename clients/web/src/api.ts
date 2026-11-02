@@ -329,6 +329,7 @@ export interface UserInfo {
   username: string;
   is_admin: boolean;
   created_at: string;
+  liked_count: number;
 }
 
 export async function listUsers(token: string): Promise<UserInfo[]> {

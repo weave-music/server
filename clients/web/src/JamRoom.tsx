@@ -1,6 +1,7 @@
 import QRCode from "qrcode";
 import { useEffect, useMemo, useState } from "react";
 import { Artwork } from "./Artwork";
+import { Spinner } from "./Spinner";
 import {
   ChevronDownIcon,
   PauseIcon,
@@ -129,6 +130,22 @@ export function JamRoom({
     setInviteMinimized(false);
   }
 
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+
+  async function shareJoinLink() {
+    if (!joinUrl) return;
+    const shareData = { title: "Join my Weave Jam", text: "Add songs to the queue from your phone", url: joinUrl };
+    const nativeShare = (navigator as { share?: (data: typeof shareData) => Promise<void> }).share;
+    try {
+      if (nativeShare) await nativeShare.call(navigator, shareData);
+      else await navigator.clipboard.writeText(joinUrl);
+      setShareFeedback(nativeShare ? "Share sheet opened" : "Link copied");
+    } catch (error) {
+      if ((error as DOMException).name !== "AbortError") setShareFeedback("Could not share this link");
+    }
+    setTimeout(() => setShareFeedback(null), 2000);
+  }
+
   function openSettings() {
     setInviteMinimized(true);
     setShowSettings(true);
@@ -213,6 +230,9 @@ export function JamRoom({
                 {qrDataUrl && <img className="jam-room-qr" src={qrDataUrl} alt="QR code to join this jam" />}
                 <div className="jam-room-code">{joinCode}</div>
                 <p className="jam-room-url">Scan to join, or go to {joinUrl}</p>
+                <button onClick={shareJoinLink}>
+                  <ShareIcon /> {shareFeedback ?? "Share link"}
+                </button>
                 <button className="jam-modal-close" onClick={() => setInviteMinimized(true)}>
                   Close
                 </button>
@@ -415,7 +435,13 @@ export function JamRoom({
                   aria-label="Search for a song to add"
                 />
                 <button type="submit" disabled={searching}>
-                  {searching ? "Searching…" : "Search"}
+                  {searching ? (
+                    <>
+                      <Spinner /> Searching…
+                    </>
+                  ) : (
+                    "Search"
+                  )}
                 </button>
               </form>
               {results.length > 0 && (
