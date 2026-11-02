@@ -177,6 +177,7 @@ export function DiscoverView({ token, onPlay, playlists, historyVersion, onOpenD
                   providerId: track.sources[0]!.provider_id,
                   ref: track.artist_ref!,
                   name: artist,
+                  artworkUrl: track.artwork_url,
                 })}
               />
             ))}

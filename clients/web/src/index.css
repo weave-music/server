@@ -406,7 +406,7 @@ button:disabled {
 
 .search-history {
   position: absolute;
-  top: calc(100% - 0.75rem);
+  top: calc(100% + 0.35rem);
   left: 0;
   right: 0;
   z-index: 25;

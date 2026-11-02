@@ -409,6 +409,7 @@ export function SearchView({
                         providerId: t.sources[0]!.provider_id,
                         ref: t.artist_ref!,
                         name: t.artist_name!,
+                        artworkUrl: t.artwork_url,
                       })
                     }
                   />
@@ -489,6 +490,7 @@ export function SearchView({
                     providerId: t.sources[0]!.provider_id,
                     ref: t.artist_ref!,
                     name: t.artist_name!,
+                    artworkUrl: t.artwork_url,
                   })
                 }
               >

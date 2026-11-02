@@ -16,6 +16,7 @@ export interface DetailTarget {
   ref: string;
   name: string;
   year?: string | null;
+  artworkUrl?: string | null;
 }
 
 interface Props {
@@ -183,7 +184,7 @@ export function DetailView({
         </div>
 
         <div className="artist-hero">
-          <Artwork url={artistArtworkUrl ?? tracks[0]?.artwork_url ?? null} size="lg" alt="" />
+          <Artwork url={target.artworkUrl ?? tracks[0]?.artwork_url ?? artistArtworkUrl ?? null} size="lg" alt="" />
           <h2>{target.name}</h2>
           <div className="artist-stats">
             <span>{tracks.length >= 50 ? "50+" : tracks.length} songs</span>
@@ -299,6 +300,7 @@ export function DetailView({
                       providerId: t.sources[0]!.provider_id,
                       ref: t.artist_ref!,
                       name: t.artist_name!,
+                      artworkUrl: t.artwork_url,
                     })
                   }
                 />
@@ -332,6 +334,7 @@ export function DetailView({
                   providerId: albumArtist.sources[0]!.provider_id,
                   ref: albumArtist.artist_ref!,
                   name: albumArtist.artist_name!,
+                  artworkUrl: albumArtist.artwork_url,
                 })
               }
             >

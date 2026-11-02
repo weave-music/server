@@ -141,7 +141,7 @@ export function NowPlayingView({
           {providerId && (
             <button
               onClick={() => currentTrack.artist_ref
-                ? onOpenDetail({ type: "artist", providerId, ref: currentTrack.artist_ref, name: currentTrack.artist_name ?? "Artist" })
+                ? onOpenDetail({ type: "artist", providerId, ref: currentTrack.artist_ref, name: currentTrack.artist_name ?? "Artist", artworkUrl: currentTrack.artwork_url })
                 : window.open(artistUrl, "_blank", "noopener,noreferrer")}
             >
               <UserIcon /> Go to artist

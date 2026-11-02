@@ -40,7 +40,7 @@ export function TrackOverflowMenu({
   function viewArtist() {
     if (!source) return;
     if (track.artist_ref && track.artist_name) {
-      onOpenDetail({ type: "artist", providerId: source.provider_id, ref: track.artist_ref, name: track.artist_name });
+      onOpenDetail({ type: "artist", providerId: source.provider_id, ref: track.artist_ref, name: track.artist_name, artworkUrl: track.artwork_url });
       return;
     }
     window.open(`https://music.youtube.com/search?q=${encodeURIComponent(track.artist_name ?? track.title)}`, "_blank", "noopener,noreferrer");
