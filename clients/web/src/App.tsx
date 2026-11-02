@@ -43,7 +43,7 @@ export default function App() {
   // — the regular player (not just the Jam panel's own controls) should
   // drive the actual source device instead of this device's own queue.
   const isRemote = !!jamApi.jam && !jamApi.isSource;
-  const playlistApi = usePlaylists();
+  const playlistApi = usePlaylists(token);
   const history = useListeningHistory();
   const likes = useLikes(token);
   // Mirrors the admin "Cache YouTube Music results for" setting — pointless
@@ -263,7 +263,9 @@ export default function App() {
             {tab === "playlists" && (
               <PlaylistsView
                 token={token}
+                selfId={me.id}
                 playlists={playlistApi.playlists}
+                allPlaylists={playlistApi.allPlaylists}
                 onCreate={playlistApi.createPlaylist}
                 onDelete={playlistApi.deletePlaylist}
                 onRemoveTrack={playlistApi.removeTrackFromPlaylist}

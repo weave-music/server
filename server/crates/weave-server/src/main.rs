@@ -164,6 +164,11 @@ async fn main() {
         .route("/api/album", get(album_tracks))
         .route("/api/playlist", get(playlist_tracks))
         .route("/api/likes", get(list_likes).post(like_track).delete(unlike_track))
+        .route("/api/playlists", get(list_playlists).post(create_playlist))
+        .route("/api/playlists/mine", get(list_my_playlists))
+        .route("/api/playlists/:id", get(get_playlist).delete(delete_playlist))
+        .route("/api/playlists/:id/tracks", post(add_playlist_track))
+        .route("/api/playlists/:id/tracks/:track_id", delete(remove_playlist_track))
         .route("/api/stream", get(stream))
         .route("/api/playback", get(get_playback).post(update_playback))
         .route("/api/playback/ws", get(playback_ws))
@@ -940,6 +945,286 @@ async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
             Json(serde_json::json!({ "results": tracks })).into_response()
         }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not list likes").into_response(),
+    }
+}
+
+/// User-created playlists (distinct from `/api/playlist`, which browses an
+/// external provider's own playlists). Every playlist on the server is
+/// visible to every logged-in user — there's no private/public flag, by
+/// design (self-hosted, trusted household) — but only the owner can modify
+/// or delete one. `playlist_owner_id` backs that check in the three
+/// mutating routes below.
+async fn playlist_owner_id(db: &SqlitePool, playlist_id: &str) -> Option<String> {
+    sqlx::query_scalar::<_, String>("SELECT owner_id FROM playlists WHERE id = ?")
+        .bind(playlist_id)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+}
+
+#[derive(Deserialize)]
+struct CreatePlaylistBody {
+    name: String,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct UserPlaylistSummary {
+    id: String,
+    name: String,
+    owner_id: String,
+    owner_username: String,
+    track_count: i64,
+}
+
+async fn create_playlist(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<CreatePlaylistBody>,
+) -> Response {
+    let id = Uuid::new_v4().to_string();
+    match sqlx::query("INSERT INTO playlists (id, owner_id, name) VALUES (?, ?, ?)")
+        .bind(&id)
+        .bind(&user.id)
+        .bind(&body.name)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => Json(UserPlaylistSummary {
+            id,
+            name: body.name,
+            owner_id: user.id,
+            owner_username: user.username,
+            track_count: 0,
+        })
+        .into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not create playlist").into_response(),
+    }
+}
+
+/// Every playlist on the server, not just the caller's — the frontend
+/// splits "your playlists" vs "everyone else's" by comparing `owner_id`
+/// client-side rather than this needing two separate endpoints.
+async fn list_playlists(State(state): State<AppState>, _user: AuthUser) -> Response {
+    let rows: Result<Vec<UserPlaylistSummary>, _> = sqlx::query_as(
+        "SELECT p.id, p.name, p.owner_id, u.username AS owner_username, \
+         (SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id = p.id) AS track_count \
+         FROM playlists p JOIN users u ON u.id = p.owner_id \
+         ORDER BY p.created_at",
+    )
+    .fetch_all(&state.db)
+    .await;
+
+    match rows {
+        Ok(rows) => Json(rows).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not list playlists").into_response(),
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct PlaylistTrackRow {
+    id: String,
+    provider_id: String,
+    source_ref: String,
+    title: String,
+    artist_name: Option<String>,
+    artist_ref: Option<String>,
+    album_name: Option<String>,
+    album_ref: Option<String>,
+    artwork_url: Option<String>,
+    duration_secs: Option<i64>,
+}
+
+fn playlist_track_to_track(r: PlaylistTrackRow) -> Track {
+    Track {
+        // Unlike `list_likes`'s fresh uuid per fetch, this needs to stay
+        // stable across fetches so the frontend's "remove this track"
+        // button (keyed by `Track.id`) keeps pointing at the right row.
+        id: Uuid::parse_str(&r.id).unwrap_or_else(|_| Uuid::new_v4()),
+        title: r.title,
+        duration_secs: r.duration_secs.map(|d| d as u32),
+        track_number: None,
+        sources: vec![TrackSource {
+            is_local: r.provider_id == "local",
+            provider_id: r.provider_id,
+            source_ref: r.source_ref,
+            bitrate_kbps: None,
+            is_lossless: false,
+        }],
+        artwork_url: r.artwork_url,
+        artist_name: r.artist_name,
+        artist_ref: r.artist_ref,
+        album_name: r.album_name,
+        album_ref: r.album_ref,
+    }
+}
+
+#[derive(Serialize)]
+struct PlaylistDetail {
+    id: String,
+    name: String,
+    owner_id: String,
+    owner_username: String,
+    tracks: Vec<Track>,
+}
+
+async fn load_playlist_tracks(db: &SqlitePool, playlist_id: &str) -> Result<Vec<Track>, sqlx::Error> {
+    let rows: Vec<PlaylistTrackRow> = sqlx::query_as(
+        "SELECT id, provider_id, source_ref, title, artist_name, artist_ref, album_name, album_ref, \
+         artwork_url, duration_secs FROM playlist_tracks WHERE playlist_id = ? ORDER BY position",
+    )
+    .bind(playlist_id)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(playlist_track_to_track).collect())
+}
+
+async fn get_playlist(State(state): State<AppState>, _user: AuthUser, Path(id): Path<String>) -> Response {
+    let header = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT p.name, p.owner_id, u.username FROM playlists p JOIN users u ON u.id = p.owner_id WHERE p.id = ?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.db)
+    .await;
+
+    let Ok(Some((name, owner_id, owner_username))) = header else {
+        return (StatusCode::NOT_FOUND, "playlist not found").into_response();
+    };
+
+    match load_playlist_tracks(&state.db, &id).await {
+        Ok(tracks) => Json(PlaylistDetail { id, name, owner_id, owner_username, tracks }).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not load playlist").into_response(),
+    }
+}
+
+/// Full detail (tracks included) for just the caller's own playlists in one
+/// call, so the client can show "your playlists" with their track lists
+/// already populated without an N-request fan-out of `GET /api/playlists/:id`.
+async fn list_my_playlists(State(state): State<AppState>, user: AuthUser) -> Response {
+    let headers: Result<Vec<(String, String)>, _> =
+        sqlx::query_as("SELECT id, name FROM playlists WHERE owner_id = ? ORDER BY created_at")
+            .bind(&user.id)
+            .fetch_all(&state.db)
+            .await;
+
+    let Ok(headers) = headers else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "could not list your playlists").into_response();
+    };
+
+    let mut playlists = Vec::with_capacity(headers.len());
+    for (id, name) in headers {
+        match load_playlist_tracks(&state.db, &id).await {
+            Ok(tracks) => playlists.push(PlaylistDetail {
+                id,
+                name,
+                owner_id: user.id.clone(),
+                owner_username: user.username.clone(),
+                tracks,
+            }),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "could not load your playlists").into_response(),
+        }
+    }
+    Json(playlists).into_response()
+}
+
+async fn delete_playlist(State(state): State<AppState>, user: AuthUser, Path(id): Path<String>) -> Response {
+    match playlist_owner_id(&state.db, &id).await {
+        None => (StatusCode::NOT_FOUND, "playlist not found").into_response(),
+        Some(owner_id) if owner_id != user.id => {
+            (StatusCode::FORBIDDEN, "not your playlist").into_response()
+        }
+        Some(_) => match sqlx::query("DELETE FROM playlists WHERE id = ?").bind(&id).execute(&state.db).await {
+            Ok(_) => StatusCode::NO_CONTENT.into_response(),
+            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not delete playlist").into_response(),
+        },
+    }
+}
+
+async fn add_playlist_track(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    Json(track): Json<Track>,
+) -> Response {
+    match playlist_owner_id(&state.db, &id).await {
+        None => return (StatusCode::NOT_FOUND, "playlist not found").into_response(),
+        Some(owner_id) if owner_id != user.id => {
+            return (StatusCode::FORBIDDEN, "not your playlist").into_response();
+        }
+        Some(_) => {}
+    }
+    let Some(source) = track.sources.first() else {
+        return (StatusCode::BAD_REQUEST, "track has no source").into_response();
+    };
+
+    let next_position: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_tracks WHERE playlist_id = ?",
+    )
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let row_id = Uuid::new_v4().to_string();
+    let result = sqlx::query(
+        "INSERT INTO playlist_tracks (id, playlist_id, position, provider_id, source_ref, title, \
+         artist_name, artist_ref, album_name, album_ref, artwork_url, duration_secs) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&row_id)
+    .bind(&id)
+    .bind(next_position)
+    .bind(&source.provider_id)
+    .bind(&source.source_ref)
+    .bind(&track.title)
+    .bind(&track.artist_name)
+    .bind(&track.artist_ref)
+    .bind(&track.album_name)
+    .bind(&track.album_ref)
+    .bind(&track.artwork_url)
+    .bind(track.duration_secs.map(|d| d as i64))
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => Json(playlist_track_to_track(PlaylistTrackRow {
+            id: row_id,
+            provider_id: source.provider_id.clone(),
+            source_ref: source.source_ref.clone(),
+            title: track.title,
+            artist_name: track.artist_name,
+            artist_ref: track.artist_ref,
+            album_name: track.album_name,
+            album_ref: track.album_ref,
+            artwork_url: track.artwork_url,
+            duration_secs: track.duration_secs.map(|d| d as i64),
+        }))
+        .into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not add track").into_response(),
+    }
+}
+
+async fn remove_playlist_track(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((id, track_id)): Path<(String, String)>,
+) -> Response {
+    match playlist_owner_id(&state.db, &id).await {
+        None => (StatusCode::NOT_FOUND, "playlist not found").into_response(),
+        Some(owner_id) if owner_id != user.id => {
+            (StatusCode::FORBIDDEN, "not your playlist").into_response()
+        }
+        Some(_) => {
+            match sqlx::query("DELETE FROM playlist_tracks WHERE id = ? AND playlist_id = ?")
+                .bind(&track_id)
+                .bind(&id)
+                .execute(&state.db)
+                .await
+            {
+                Ok(_) => StatusCode::NO_CONTENT.into_response(),
+                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not remove track").into_response(),
+            }
+        }
     }
 }
 

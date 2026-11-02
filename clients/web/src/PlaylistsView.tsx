@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchLikes } from "./api";
+import { fetchLikes, fetchPlaylistDetail, type PlaylistSummary } from "./api";
 import { LikeButton } from "./LikeButton";
 import { useLikesContext } from "./LikesContext";
 import { TrackRow } from "./TrackRow";
@@ -8,19 +8,51 @@ import type { Track } from "./types";
 
 interface Props {
   token: string;
+  selfId: string;
   playlists: Playlist[];
+  allPlaylists: PlaylistSummary[];
   onCreate: (name: string) => void;
   onDelete: (id: string) => void;
   onRemoveTrack: (playlistId: string, trackId: string) => void;
   onPlay: (tracks: Track[], startId?: string) => void;
 }
 
-export function PlaylistsView({ token, playlists, onCreate, onDelete, onRemoveTrack, onPlay }: Props) {
+export function PlaylistsView({
+  token,
+  selfId,
+  playlists,
+  allPlaylists,
+  onCreate,
+  onDelete,
+  onRemoveTrack,
+  onPlay,
+}: Props) {
   const [newName, setNewName] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [likedTracks, setLikedTracks] = useState<Track[]>([]);
   const [likedOpen, setLikedOpen] = useState(false);
   const { isLiked } = useLikesContext();
+
+  // Lazy-loaded per playlist on expand — unlike "your playlists" (already
+  // fetched with tracks included), browsing someone else's is read-only and
+  // uncommon enough that fetching every other user's full tracklist upfront
+  // would be wasted work most of the time.
+  const [openOtherId, setOpenOtherId] = useState<string | null>(null);
+  const [otherTracks, setOtherTracks] = useState<Record<string, Track[]>>({});
+  const otherPlaylists = allPlaylists.filter((pl) => pl.owner_id !== selfId);
+
+  function toggleOther(pl: PlaylistSummary) {
+    if (openOtherId === pl.id) {
+      setOpenOtherId(null);
+      return;
+    }
+    setOpenOtherId(pl.id);
+    if (!otherTracks[pl.id]) {
+      fetchPlaylistDetail(token, pl.id).then((detail) => {
+        if (detail) setOtherTracks((prev) => ({ ...prev, [pl.id]: detail.tracks }));
+      });
+    }
+  }
 
   useEffect(() => {
     fetchLikes(token).then(setLikedTracks);
@@ -89,6 +121,36 @@ export function PlaylistsView({ token, playlists, onCreate, onDelete, onRemoveTr
           </li>
         ))}
       </ul>
+
+      {otherPlaylists.length > 0 && (
+        <>
+          <h3>From other people on this server</h3>
+          <ul className="playlist-list">
+            {otherPlaylists.map((pl) => {
+              const tracks = otherTracks[pl.id] ?? [];
+              return (
+                <li key={pl.id}>
+                  <div className="playlist-header">
+                    <button onClick={() => toggleOther(pl)}>
+                      {openOtherId === pl.id ? "▾" : "▸"} {pl.name} ({pl.track_count}) — by {pl.owner_username}
+                    </button>
+                    {tracks.length > 0 && <button onClick={() => onPlay(tracks)}>Play</button>}
+                  </div>
+                  {openOtherId === pl.id && (
+                    <ul className="track-list">
+                      {tracks.map((track) => (
+                        <TrackRow key={track.id} track={track} onPlay={() => onPlay(tracks, track.id)}>
+                          <LikeButton track={track} />
+                        </TrackRow>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

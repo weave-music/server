@@ -36,6 +36,81 @@ export async function unlikeTrack(token: string, track: Track): Promise<void> {
   });
 }
 
+// Every playlist on the server, not just the caller's — visible to any
+// logged-in user by design (self-hosted, trusted household), so this one
+// list backs both "your playlists" and "everyone else's" client-side.
+export interface PlaylistSummary {
+  id: string;
+  name: string;
+  owner_id: string;
+  owner_username: string;
+  track_count: number;
+}
+
+export interface PlaylistDetail {
+  id: string;
+  name: string;
+  owner_id: string;
+  owner_username: string;
+  tracks: Track[];
+}
+
+export async function fetchAllPlaylists(token: string): Promise<PlaylistSummary[]> {
+  const res = await fetch("/api/playlists", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// Full detail (tracks included) for just the caller's own playlists, in one
+// request — avoids an N-request fan-out of fetchPlaylistDetail per playlist.
+export async function fetchMyPlaylists(token: string): Promise<PlaylistDetail[]> {
+  const res = await fetch("/api/playlists/mine", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchPlaylistDetail(token: string, id: string): Promise<PlaylistDetail | null> {
+  const res = await fetch(`/api/playlists/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function createPlaylistApi(token: string, name: string): Promise<PlaylistSummary> {
+  const res = await fetch("/api/playlists", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Could not create playlist.");
+  return res.json();
+}
+
+export async function deletePlaylistApi(token: string, id: string): Promise<void> {
+  await fetch(`/api/playlists/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function addTrackToPlaylistApi(token: string, playlistId: string, track: Track): Promise<Track> {
+  const res = await fetch(`/api/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(track),
+  });
+  if (!res.ok) throw new Error("Could not add track to playlist.");
+  return res.json();
+}
+
+export async function removeTrackFromPlaylistApi(token: string, playlistId: string, trackId: string): Promise<void> {
+  await fetch(`/api/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(trackId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function searchTracks(query: string, token: string): Promise<Track[]> {
   const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
     headers: { Authorization: `Bearer ${token}` },

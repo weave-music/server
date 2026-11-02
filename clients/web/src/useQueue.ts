@@ -35,6 +35,11 @@ export function useQueue(token: string | null) {
   // callback) has no way to know the ref finally has a real element, so it
   // never re-attaches listeners to it. State (via a callback ref) is.
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  // Never played directly — exists only so the browser can warm the
+  // connection/buffer for the next track while the current one is still
+  // playing (see the prefetch effect below), making the real swap at the
+  // track boundary land on an already-buffered URL instead of a cold one.
+  const [preloadElement, setPreloadElement] = useState<HTMLAudioElement | null>(null);
   const [queue, setQueue] = useState<Track[]>([]);
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -63,6 +68,9 @@ export function useQueue(token: string | null) {
   // dry, so every track plays once before any of them repeat instead of
   // picking uniformly at random with replacement every time.
   const shuffleBagRef = useRef<string[]>([]);
+  // Last URL handed to the preload element, so the prefetch effect below
+  // doesn't redundantly call .load() again when nothing's actually changed.
+  const lastPreloadUrlRef = useRef<string | null>(null);
 
   const currentIndex = queue.findIndex((t) => t.id === currentTrackId);
   const currentTrack = currentIndex >= 0 ? queue[currentIndex] : null;
@@ -297,6 +305,37 @@ export function useQueue(token: string | null) {
     });
   }, []);
 
+  // Mirrors next()'s own decision (shuffle bag / sequential-with-wrap) to
+  // figure out what's coming up next, without mutating shuffleHistoryRef or
+  // popping the shuffle bag — this only warms a hidden <audio> element, it
+  // never actually advances playback. If the bag happens to be empty right
+  // now, refilling it here is harmless (next() will just reuse the same
+  // bag this effect already built) rather than a side effect worth avoiding.
+  useEffect(() => {
+    if (!preloadElement || !currentTrack) return;
+    let nextId: string | null = null;
+    if (shuffleRef.current) {
+      shuffleBagRef.current = shuffleBagRef.current.filter((bagId) => queue.some((t) => t.id === bagId));
+      if (shuffleBagRef.current.length === 0) {
+        const remaining = queue.filter((t) => t.id !== currentTrackId).map((t) => t.id);
+        if (remaining.length > 0) shuffleBagRef.current = shuffleIds(remaining);
+      }
+      nextId = shuffleBagRef.current[shuffleBagRef.current.length - 1] ?? null;
+    } else {
+      const idx = queue.findIndex((t) => t.id === currentTrackId);
+      if (idx >= 0 && idx + 1 < queue.length) nextId = queue[idx + 1].id;
+      else if (repeatRef.current === "all") nextId = queue[0]?.id ?? null;
+    }
+
+    const nextTrack = nextId ? queue.find((t) => t.id === nextId) ?? null : null;
+    if (!nextTrack) return;
+    const url = streamUrl(nextTrack, token);
+    if (!url || url === lastPreloadUrlRef.current) return;
+    lastPreloadUrlRef.current = url;
+    preloadElement.src = url;
+    preloadElement.load();
+  }, [currentTrack?.id, currentTrackId, queue, preloadElement, token]);
+
   const prev = useCallback(() => {
     setQueue((q) => {
       setCurrentTrackId((id) => {
@@ -481,6 +520,7 @@ export function useQueue(token: string | null) {
 
   return {
     audioRef: setAudioElement,
+    preloadRef: setPreloadElement,
     queue,
     currentTrack,
     isPlaying,

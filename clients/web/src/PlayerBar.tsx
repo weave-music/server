@@ -27,8 +27,18 @@ export function PlayerBar({
   remoteVolume,
   remoteIsPlaying,
 }: Props) {
-  const { audioRef, currentTrack, isPlaying: localIsPlaying, currentTime, duration, togglePlay, next, prev, seek } =
-    queueApi;
+  const {
+    audioRef,
+    preloadRef,
+    currentTrack,
+    isPlaying: localIsPlaying,
+    currentTime,
+    duration,
+    togglePlay,
+    next,
+    prev,
+    seek,
+  } = queueApi;
 
   const remote = isRemote && onRemoteCommand;
   const isPlaying = remote ? !!remoteIsPlaying : localIsPlaying;
@@ -36,6 +46,7 @@ export function PlayerBar({
   return (
     <footer className="player-bar">
       <audio ref={audioRef} />
+      <audio ref={preloadRef} style={{ display: "none" }} preload="auto" />
       <button
         className="player-bar-track"
         onClick={onExpand}
