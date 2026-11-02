@@ -11,16 +11,15 @@ services:
     restart: unless-stopped
 
   weave-web:
-    image: node:20-alpine
-    working_dir: /app
-    volumes:
-      - /mnt/tank/files/projects/weave/clients/web:/app
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
     ports:
       - "5173:5173"
-    # Production build, not the dev server — vite's dev-mode React build is
-    # noticeably slower (unminified, no prod optimizations). Rebuild after
-    # editing source (npm run build) to pick up changes; this won't live-reload.
-    command: sh -c "npm install && npm run build && npm run preview"
+    # Production build baked into the image at build time (nginx serving
+    # static files + proxying /api and /rest) rather than live npm
+    # install/build/preview on every start. Rebuild after editing source:
+    # docker compose -f docker/docker-compose.yml up -d --build weave-web
     depends_on:
       - weave-server
     restart: unless-stopped

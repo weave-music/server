@@ -18,7 +18,7 @@ use axum::{
 };
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 use tower::ServiceExt;
@@ -85,8 +85,18 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let db_path = std::env::var("WEAVE_DB_PATH").unwrap_or_else(|_| "/config/weave.db".to_string());
-    let connect_options = SqliteConnectOptions::new().filename(&db_path).create_if_missing(true);
+    // WAL mode lets readers (the overwhelming majority of queries) proceed
+    // without waiting on whatever write is in flight — cache inserts on
+    // every uncached search, likes, playback-state updates, jam queue/log
+    // writes — instead of the default rollback-journal mode where they'd
+    // all serialize behind a single exclusive lock.
+    let connect_options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal);
     let db = SqlitePoolOptions::new()
+        .max_connections(16)
         .connect_with(connect_options)
         .await
         .unwrap_or_else(|e| panic!("failed to open database at {db_path}: {e}"));
@@ -499,16 +509,18 @@ async fn search(
     let query = SearchQuery { text: params.q, limit: 25 };
     let ytdlp_enabled = ytdlp_search_enabled(&state.db).await;
 
-    // Unified search across every configured provider (REQUIREMENTS.md §6).
-    // Sequential for now; fan these out concurrently once there's more than one.
+    // Unified search across every configured provider (REQUIREMENTS.md §6),
+    // fanned out concurrently so latency is the slowest provider's, not the
+    // sum of all of them.
+    let calls = state.providers.iter().filter(|p| p.id() != "ytdlp" || ytdlp_enabled).map(|provider| {
+        let query = &query;
+        async move { (provider.id(), provider.search(query).await) }
+    });
     let mut results = Vec::new();
-    for provider in &state.providers {
-        if provider.id() == "ytdlp" && !ytdlp_enabled {
-            continue;
-        }
-        match provider.search(&query).await {
+    for (provider_id, result) in futures::future::join_all(calls).await {
+        match result {
             Ok(tracks) => results.extend(tracks),
-            Err(err) => tracing::warn!(provider = provider.id(), %err, "provider search failed"),
+            Err(err) => tracing::warn!(provider = provider_id, %err, "provider search failed"),
         }
     }
 
@@ -529,14 +541,15 @@ async fn search_playlists(
     let query = SearchQuery { text: params.q, limit: 15 };
     let ytdlp_enabled = ytdlp_search_enabled(&state.db).await;
 
+    let calls = state.providers.iter().filter(|p| p.id() != "ytdlp" || ytdlp_enabled).map(|provider| {
+        let query = &query;
+        async move { (provider.id(), provider.search_playlists(query).await) }
+    });
     let mut results = Vec::new();
-    for provider in &state.providers {
-        if provider.id() == "ytdlp" && !ytdlp_enabled {
-            continue;
-        }
-        match provider.search_playlists(&query).await {
+    for (provider_id, result) in futures::future::join_all(calls).await {
+        match result {
             Ok(playlists) => results.extend(playlists),
-            Err(err) => tracing::warn!(provider = provider.id(), %err, "provider search_playlists failed"),
+            Err(err) => tracing::warn!(provider = provider_id, %err, "provider search_playlists failed"),
         }
     }
 
@@ -549,14 +562,16 @@ async fn search_playlists(
 /// personalized recommendations — framed that way in the UI too.
 async fn featured(State(state): State<AppState>, _user: AuthUser) -> Json<serde_json::Value> {
     let ytdlp_enabled = ytdlp_search_enabled(&state.db).await;
+    let calls = state
+        .providers
+        .iter()
+        .filter(|p| p.id() != "ytdlp" || ytdlp_enabled)
+        .map(|provider| async move { (provider.id(), provider.browse(8).await) });
     let mut results = Vec::new();
-    for provider in &state.providers {
-        if provider.id() == "ytdlp" && !ytdlp_enabled {
-            continue;
-        }
-        match provider.browse(8).await {
+    for (provider_id, result) in futures::future::join_all(calls).await {
+        match result {
             Ok(tracks) => results.extend(tracks),
-            Err(err) => tracing::warn!(provider = provider.id(), %err, "provider browse failed"),
+            Err(err) => tracing::warn!(provider = provider_id, %err, "provider browse failed"),
         }
     }
     results.shuffle(&mut rand::thread_rng());

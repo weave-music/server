@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Thin JSON bridge to ytmusicapi, invoked as a subprocess by weave-provider-ytdlp.
+"""Thin JSON bridge to ytmusicapi, run as a long-lived subprocess by
+weave-provider-ytdlp (which keeps a small pool of these alive rather than
+spawning one per call — interpreter startup + ytmusicapi session setup is
+the dominant cost of a single call otherwise).
 
 yt-dlp's generic page scraping can't see YouTube Music's actual artist/album
 catalog (no reliable Albums/Singles structure — confirmed across four
@@ -7,11 +10,24 @@ extraction approaches), and generic YouTube video search surfaces mixes,
 livestreams and compilations rather than individual songs. This talks to the
 same internal API the YouTube Music web client itself uses, via ytmusicapi,
 for both.
+
+Protocol: one JSON object per line on stdin, `{"command": ..., "args": [...]}`
+(mirrors the old argv-based invocation); one JSON object per line on stdout,
+`{"ok": true, "data": ...}` or `{"ok": false, "error": "..."}`.
 """
 import json
 import sys
 
 from ytmusicapi import YTMusic
+
+_yt = None
+
+
+def get_yt():
+    global _yt
+    if _yt is None:
+        _yt = YTMusic()
+    return _yt
 
 
 def best_thumbnail(thumbnails):
@@ -44,14 +60,12 @@ def song_entry(r):
 
 
 def cmd_songs(query, limit):
-    yt = YTMusic()
-    results = yt.search(query, filter="songs", limit=int(limit))
-    print(json.dumps({"songs": [song_entry(r) for r in results]}))
+    results = get_yt().search(query, filter="songs", limit=int(limit))
+    return {"songs": [song_entry(r) for r in results]}
 
 
 def cmd_artist(channel_id):
-    yt = YTMusic()
-    artist = yt.get_artist(channel_id)
+    artist = get_yt().get_artist(channel_id)
 
     songs = [song_entry(s) for s in (artist.get("songs") or {}).get("results", [])]
 
@@ -69,20 +83,16 @@ def cmd_artist(channel_id):
             )
         return out
 
-    print(
-        json.dumps(
-            {
-                "songs": songs,
-                "releases": releases("albums", False) + releases("singles", True),
-                # The artist's own profile photo — distinct from any song's
-                # thumbnail, which `tracks[0]?.artwork_url` was standing in
-                # for before (and often didn't match what search had shown
-                # for the same artist, since that came from a different
-                # track entirely).
-                "artist_artwork_url": best_thumbnail(artist.get("thumbnails")),
-            }
-        )
-    )
+    return {
+        "songs": songs,
+        "releases": releases("albums", False) + releases("singles", True),
+        # The artist's own profile photo — distinct from any song's
+        # thumbnail, which `tracks[0]?.artwork_url` was standing in
+        # for before (and often didn't match what search had shown
+        # for the same artist, since that came from a different
+        # track entirely).
+        "artist_artwork_url": best_thumbnail(artist.get("thumbnails")),
+    }
 
 
 def playlist_entry(r):
@@ -100,14 +110,12 @@ def playlist_entry(r):
 
 
 def cmd_playlists(query, limit):
-    yt = YTMusic()
-    results = yt.search(query, filter="playlists", limit=int(limit))
-    print(json.dumps({"playlists": [playlist_entry(r) for r in results if r.get("playlistId") or r.get("browseId")]}))
+    results = get_yt().search(query, filter="playlists", limit=int(limit))
+    return {"playlists": [playlist_entry(r) for r in results if r.get("playlistId") or r.get("browseId")]}
 
 
 def cmd_playlist(playlist_id, limit):
-    yt = YTMusic()
-    playlist = yt.get_playlist(playlist_id, limit=int(limit))
+    playlist = get_yt().get_playlist(playlist_id, limit=int(limit))
     playlist_artwork = best_thumbnail(playlist.get("thumbnails"))
 
     tracks = []
@@ -130,12 +138,11 @@ def cmd_playlist(playlist_id, limit):
             }
         )
 
-    print(json.dumps({"title": playlist.get("title"), "artwork_url": playlist_artwork, "tracks": tracks}))
+    return {"title": playlist.get("title"), "artwork_url": playlist_artwork, "tracks": tracks}
 
 
 def cmd_album(browse_id):
-    yt = YTMusic()
-    album = yt.get_album(browse_id)
+    album = get_yt().get_album(browse_id)
     artwork_url = best_thumbnail(album.get("thumbnails"))
 
     tracks = []
@@ -153,33 +160,36 @@ def cmd_album(browse_id):
             }
         )
 
-    print(json.dumps({"title": album.get("title"), "artwork_url": artwork_url, "tracks": tracks}))
+    return {"title": album.get("title"), "artwork_url": artwork_url, "tracks": tracks}
+
+
+COMMANDS = {
+    "songs": lambda args: cmd_songs(args[0], args[1] if len(args) > 1 else 25),
+    "artist": lambda args: cmd_artist(args[0]),
+    "album": lambda args: cmd_album(args[0]),
+    "playlists": lambda args: cmd_playlists(args[0], args[1] if len(args) > 1 else 25),
+    "playlist": lambda args: cmd_playlist(args[0], args[1] if len(args) > 1 else 300),
+}
+
+
+def dispatch(command, args):
+    handler = COMMANDS.get(command)
+    if handler is None:
+        raise ValueError(f"unknown command: {command}")
+    return handler(args)
 
 
 def main():
-    if len(sys.argv) < 3:
-        print(
-            json.dumps({"error": "usage: ytmusic_bridge.py <songs|artist|album|playlists|playlist> <query|id> [limit]"}),
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    command, arg = sys.argv[1], sys.argv[2]
-    try:
-        if command == "songs":
-            cmd_songs(arg, sys.argv[3] if len(sys.argv) > 3 else 25)
-        elif command == "artist":
-            cmd_artist(arg)
-        elif command == "album":
-            cmd_album(arg)
-        elif command == "playlists":
-            cmd_playlists(arg, sys.argv[3] if len(sys.argv) > 3 else 25)
-        elif command == "playlist":
-            cmd_playlist(arg, sys.argv[3] if len(sys.argv) > 3 else 300)
-        else:
-            raise ValueError(f"unknown command: {command}")
-    except Exception as e:
-        print(json.dumps({"error": str(e)}), file=sys.stderr)
-        sys.exit(1)
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            request = json.loads(line)
+            data = dispatch(request["command"], request.get("args", []))
+            print(json.dumps({"ok": True, "data": data}), flush=True)
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": str(e)}), flush=True)
 
 
 if __name__ == "__main__":

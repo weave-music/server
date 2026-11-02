@@ -1,10 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// The deployed app actually runs `vite preview` against a production build
-// (see docker-compose.yml) rather than the dev server — `npm run dev` is
-// only used for ad-hoc local work — so `preview` needs the same host/proxy
-// setup as `server` below, not just dev.
+// Production is served by nginx from a static build (see
+// docker/Dockerfile.web), not by Vite at all — this host/proxy config is
+// only for local dev (`npm run dev`) and ad-hoc `npm run preview` checks,
+// which is why `preview` still gets the same setup as `server` below.
 const hostConfig = {
   host: true,
   // Vite's DNS-rebinding protection blocks any Host header not in this

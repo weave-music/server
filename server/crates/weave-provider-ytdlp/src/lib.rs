@@ -12,8 +12,12 @@ use async_trait::async_trait;
 use rand::seq::SliceRandom;
 use serde::Deserialize;
 use sqlx::SqlitePool;
+use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::process::Command;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 use weave_core::{
     ArtistProfile, MediaProvider, PlaylistSummary, ProviderError, ProviderKind, ReleaseSummary, SearchQuery, Track,
@@ -32,6 +36,87 @@ use weave_core::{
 // is admin-configurable (migrations/0013, `/api/settings/cache`) rather
 // than fixed, with 0 hours meaning "disabled" — always fetch fresh.
 const DEFAULT_CACHE_TTL_HOURS: i64 = 6;
+
+// Resolved direct-audio URLs carry their own short-lived expiry on YouTube's
+// side; cache them for less than the (admin-configurable, often much longer)
+// metadata TTL above so replays are instant without ever serving an expired
+// link.
+const RESOLVE_CACHE_TTL: Duration = Duration::from_secs(4 * 60 * 60);
+
+// ytmusic_bridge.py pays Python interpreter + ytmusicapi session startup
+// cost once per process; keeping a small pool of warm, persistent processes
+// around (talked to over stdin/stdout, one request at a time per worker)
+// avoids paying that on every uncached call while still bounding how many
+// concurrent bridge calls run at once.
+const BRIDGE_POOL_SIZE: usize = 3;
+
+/// One persistent `ytmusic_bridge.py` process, communicated with via
+/// newline-delimited JSON over its stdin/stdout. Owned exclusively while
+/// checked out of the pool, so a single write-then-read pair needs no
+/// request-id multiplexing.
+struct BridgeWorker {
+    // Never read directly — keeping it alive (with `kill_on_drop(true)`) is
+    // what makes dropping a worker actually terminate its process.
+    #[allow(dead_code)]
+    child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+}
+
+#[derive(Deserialize)]
+struct BridgeEnvelope {
+    ok: bool,
+    #[serde(default)]
+    data: Option<serde_json::Value>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+impl BridgeWorker {
+    async fn spawn() -> Result<Self, ProviderError> {
+        let mut child = Command::new("ytmusic_bridge.py")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| ProviderError::Unavailable(e.to_string()))?;
+        let stdin = child.stdin.take().ok_or_else(|| ProviderError::Unavailable("bridge process has no stdin".into()))?;
+        let stdout = BufReader::new(
+            child.stdout.take().ok_or_else(|| ProviderError::Unavailable("bridge process has no stdout".into()))?,
+        );
+        Ok(Self { child, stdin, stdout })
+    }
+
+    async fn request(&mut self, command: &str, args: &[&str]) -> Result<serde_json::Value, ProviderError> {
+        let payload = serde_json::json!({ "command": command, "args": args });
+        let mut line = serde_json::to_string(&payload).map_err(|e| ProviderError::Upstream(e.to_string()))?;
+        line.push('\n');
+        self.stdin
+            .write_all(line.as_bytes())
+            .await
+            .map_err(|e| ProviderError::Unavailable(e.to_string()))?;
+        self.stdin.flush().await.map_err(|e| ProviderError::Unavailable(e.to_string()))?;
+
+        let mut response_line = String::new();
+        let bytes_read = self
+            .stdout
+            .read_line(&mut response_line)
+            .await
+            .map_err(|e| ProviderError::Unavailable(e.to_string()))?;
+        if bytes_read == 0 {
+            return Err(ProviderError::Unavailable("bridge process closed stdout".into()));
+        }
+
+        let envelope: BridgeEnvelope =
+            serde_json::from_str(&response_line).map_err(|e| ProviderError::Upstream(e.to_string()))?;
+        if envelope.ok {
+            Ok(envelope.data.unwrap_or(serde_json::Value::Null))
+        } else {
+            Err(ProviderError::Upstream(envelope.error.unwrap_or_default()))
+        }
+    }
+}
 
 /// No real recommendation engine behind "browse" (there's no play history or
 /// taste profile to draw on yet) — this just gives `browse()` something to
@@ -52,11 +137,20 @@ const SEED_TOPICS: &[&str] = &[
 pub struct YtDlpProvider {
     id: String,
     db: SqlitePool,
+    // Bounds how many `ytmusic_bridge.py` processes run concurrently; the
+    // idle list holds whichever of them aren't currently handling a request.
+    bridge_semaphore: Arc<Semaphore>,
+    bridge_idle: Arc<Mutex<Vec<BridgeWorker>>>,
 }
 
 impl YtDlpProvider {
     pub fn new(id: impl Into<String>, db: SqlitePool) -> Self {
-        Self { id: id.into(), db }
+        Self {
+            id: id.into(),
+            db,
+            bridge_semaphore: Arc::new(Semaphore::new(BRIDGE_POOL_SIZE)),
+            bridge_idle: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
     async fn cache_ttl(&self) -> Duration {
@@ -72,8 +166,14 @@ impl YtDlpProvider {
         Duration::from_secs(hours.max(0) as u64 * 60 * 60)
     }
 
-    async fn cache_get(&self, key: &str) -> Option<Vec<u8>> {
-        let ttl = self.cache_ttl().await;
+    /// `ttl_override` lets a caller cache something (e.g. a resolved stream
+    /// URL, which expires on YouTube's side well before typical metadata
+    /// TTLs) for less time than the admin-configured global default.
+    async fn cache_get(&self, key: &str, ttl_override: Option<Duration>) -> Option<Vec<u8>> {
+        let ttl = match ttl_override {
+            Some(d) => d,
+            None => self.cache_ttl().await,
+        };
         if ttl.is_zero() {
             return None;
         }
@@ -91,8 +191,11 @@ impl YtDlpProvider {
     // Also sweeps anything well past its TTL on every write, so the table
     // doesn't grow unboundedly over a long-running server process without
     // needing a separate background task just for that.
-    async fn cache_put(&self, key: String, data: Vec<u8>) {
-        let ttl = self.cache_ttl().await;
+    async fn cache_put(&self, key: String, data: Vec<u8>, ttl_override: Option<Duration>) {
+        let ttl = match ttl_override {
+            Some(d) => d,
+            None => self.cache_ttl().await,
+        };
         if ttl.is_zero() {
             return;
         }
@@ -168,7 +271,7 @@ impl YtDlpProvider {
     async fn flat_playlist(&self, list_spec: &str, limit: usize) -> Result<Vec<FlatEntry>, ProviderError> {
         let items_range = format!("1:{}", limit.max(1));
         let cache_key = format!("flat\u{1}{list_spec}\u{1}{items_range}");
-        if let Some(cached) = self.cache_get(&cache_key).await {
+        if let Some(cached) = self.cache_get(&cache_key, None).await {
             return Ok(String::from_utf8_lossy(&cached)
                 .lines()
                 .filter_map(|line| serde_json::from_str::<FlatEntry>(line).ok())
@@ -197,7 +300,7 @@ impl YtDlpProvider {
             .lines()
             .filter_map(|line| serde_json::from_str::<FlatEntry>(line).ok())
             .collect();
-        self.cache_put(cache_key, output.stdout).await;
+        self.cache_put(cache_key, output.stdout, None).await;
         Ok(entries)
     }
 
@@ -210,26 +313,35 @@ impl YtDlpProvider {
         Ok(entries.into_iter().map(|e| self.track_from_entry(e)).collect())
     }
 
-    /// Runs `ytmusic_bridge.py <args...>` and parses its JSON stdout.
+    /// Sends `{command, args}` to a pooled, persistent `ytmusic_bridge.py`
+    /// worker and parses its JSON response. Checks out a worker (spawning
+    /// one if none are idle and the pool isn't full yet, blocking briefly
+    /// if it is), returns it to the idle list on success, and simply lets
+    /// it drop (killing the process, per `kill_on_drop`) on any I/O error
+    /// so the next call spawns a fresh one instead of reusing a broken pipe.
     async fn run_bridge<T: serde::de::DeserializeOwned>(&self, args: &[&str]) -> Result<T, ProviderError> {
         let cache_key = format!("bridge\u{1}{}", args.join("\u{1}"));
-        if let Some(cached) = self.cache_get(&cache_key).await {
+        if let Some(cached) = self.cache_get(&cache_key, None).await {
             return serde_json::from_slice(&cached).map_err(|e| ProviderError::Upstream(e.to_string()));
         }
 
-        let output = Command::new("ytmusic_bridge.py")
-            .args(args)
-            .output()
-            .await
-            .map_err(|e| ProviderError::Unavailable(e.to_string()))?;
+        let (&command, rest) = args.split_first().ok_or_else(|| ProviderError::Upstream("missing bridge command".into()))?;
 
-        if !output.status.success() {
-            return Err(ProviderError::Upstream(String::from_utf8_lossy(&output.stderr).into_owned()));
+        let _permit = self.bridge_semaphore.acquire().await.map_err(|e| ProviderError::Unavailable(e.to_string()))?;
+        let mut worker = match self.bridge_idle.lock().await.pop() {
+            Some(worker) => worker,
+            None => BridgeWorker::spawn().await?,
+        };
+
+        let result = worker.request(command, rest).await;
+        if result.is_ok() {
+            self.bridge_idle.lock().await.push(worker);
         }
+        let value = result?;
 
-        let parsed = serde_json::from_slice(&output.stdout).map_err(|e| ProviderError::Upstream(e.to_string()))?;
-        self.cache_put(cache_key, output.stdout).await;
-        Ok(parsed)
+        let bytes = serde_json::to_vec(&value).map_err(|e| ProviderError::Upstream(e.to_string()))?;
+        self.cache_put(cache_key, bytes.clone(), None).await;
+        serde_json::from_slice(&bytes).map_err(|e| ProviderError::Upstream(e.to_string()))
     }
 
     /// Fallback for artists with no YouTube Music profile: just list the
@@ -366,6 +478,11 @@ impl MediaProvider for YtDlpProvider {
     }
 
     async fn resolve(&self, source_ref: &str) -> Result<String, ProviderError> {
+        let cache_key = format!("resolve\u{1}{source_ref}");
+        if let Some(cached) = self.cache_get(&cache_key, Some(RESOLVE_CACHE_TTL)).await {
+            return Ok(String::from_utf8_lossy(&cached).into_owned());
+        }
+
         let url = format!("https://www.youtube.com/watch?v={source_ref}");
         let output = Command::new("yt-dlp")
             .args(["-f", "bestaudio", "-g", "--no-warnings", &url])
@@ -377,11 +494,13 @@ impl MediaProvider for YtDlpProvider {
             return Err(ProviderError::Upstream(String::from_utf8_lossy(&output.stderr).into_owned()));
         }
 
-        String::from_utf8_lossy(&output.stdout)
+        let resolved = String::from_utf8_lossy(&output.stdout)
             .lines()
             .next()
             .map(|s| s.to_string())
-            .ok_or(ProviderError::NotFound)
+            .ok_or(ProviderError::NotFound)?;
+        self.cache_put(cache_key, resolved.clone().into_bytes(), Some(RESOLVE_CACHE_TTL)).await;
+        Ok(resolved)
     }
 
     async fn browse(&self, limit: usize) -> Result<Vec<Track>, ProviderError> {

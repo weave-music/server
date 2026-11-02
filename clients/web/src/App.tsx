@@ -1,18 +1,13 @@
-import { useEffect, useState } from "react";
-import { AdminView } from "./AdminView";
-import { AuthView } from "./AuthView";
-import { DetailView, type DetailTarget } from "./DetailView";
+import { lazy, Suspense, useEffect, useState } from "react";
+import type { DetailTarget } from "./DetailView";
 import { DiscoverView } from "./DiscoverView";
 import { fetchArtistReleases, fetchArtistTracks, fetchRadio, getCacheTtlHours } from "./api";
 import { ChevronDownIcon, JamIcon } from "./icons";
-import { JamRoom } from "./JamRoom";
 import { dedupeMembers } from "./jamApi";
 import { LikesProvider } from "./LikesContext";
 import { NavTabs } from "./NavTabs";
 import { NowPlayingView } from "./NowPlayingView";
 import { PlayerBar } from "./PlayerBar";
-import { PlaylistsView } from "./PlaylistsView";
-import { QueueView } from "./QueueView";
 import { SearchView } from "./SearchView";
 import { Toast } from "./Toast";
 import { useAuth } from "./useAuth";
@@ -22,6 +17,16 @@ import { useListeningHistory } from "./useListeningHistory";
 import { useQueue } from "./useQueue";
 import { usePlaylists } from "./usePlaylists";
 import type { Track } from "./types";
+
+// Lazy-loaded: not needed on first paint (AuthView only shows before a
+// session restores; the rest are opened on demand), so logged-in users
+// browsing the default Discover tab don't pay for this code upfront.
+const AuthView = lazy(() => import("./AuthView").then((m) => ({ default: m.AuthView })));
+const AdminView = lazy(() => import("./AdminView").then((m) => ({ default: m.AdminView })));
+const DetailView = lazy(() => import("./DetailView").then((m) => ({ default: m.DetailView })));
+const JamRoom = lazy(() => import("./JamRoom").then((m) => ({ default: m.JamRoom })));
+const PlaylistsView = lazy(() => import("./PlaylistsView").then((m) => ({ default: m.PlaylistsView })));
+const QueueView = lazy(() => import("./QueueView").then((m) => ({ default: m.QueueView })));
 
 type Tab = "search" | "discover" | "queue" | "playlists" | "admin";
 
@@ -74,7 +79,13 @@ export default function App() {
   }, [queueApi.currentTrack?.artist_ref, token, cachingEnabled]);
 
   if (checking) return null;
-  if (!token || !me) return <AuthView onLogin={login} onSetup={setup} onRegister={register} />;
+  if (!token || !me) {
+    return (
+      <Suspense fallback={null}>
+        <AuthView onLogin={login} onSetup={setup} onRegister={register} />
+      </Suspense>
+    );
+  }
 
   // Both close whatever other full-screen overlay is open first — jam-room
   // sits below Now Playing/Detail in z-index (so the player bar can show
@@ -200,26 +211,28 @@ export default function App() {
           {tab === "discover" && (
             <DiscoverView token={token} onPlay={playFromDiscover} playlists={playlistApi.playlists} historyVersion={history.version} onOpenDetail={(target) => setDetail(target)} />
           )}
-          {tab === "queue" && (
-            <QueueView
-              queue={queueApi.queue}
-              currentTrackId={queueApi.currentTrack?.id ?? null}
-              onPlay={queueApi.playTrack}
-              onRemove={queueApi.removeFromQueue}
-              onMove={queueApi.moveInQueue}
-            />
-          )}
-          {tab === "playlists" && (
-            <PlaylistsView
-              token={token}
-              playlists={playlistApi.playlists}
-              onCreate={playlistApi.createPlaylist}
-              onDelete={playlistApi.deletePlaylist}
-              onRemoveTrack={playlistApi.removeTrackFromPlaylist}
-              onPlay={queueApi.playTracks}
-            />
-          )}
-          {tab === "admin" && me.is_admin && <AdminView token={token} selfId={me.id} />}
+          <Suspense fallback={null}>
+            {tab === "queue" && (
+              <QueueView
+                queue={queueApi.queue}
+                currentTrackId={queueApi.currentTrack?.id ?? null}
+                onPlay={queueApi.playTrack}
+                onRemove={queueApi.removeFromQueue}
+                onMove={queueApi.moveInQueue}
+              />
+            )}
+            {tab === "playlists" && (
+              <PlaylistsView
+                token={token}
+                playlists={playlistApi.playlists}
+                onCreate={playlistApi.createPlaylist}
+                onDelete={playlistApi.deletePlaylist}
+                onRemoveTrack={playlistApi.removeTrackFromPlaylist}
+                onPlay={queueApi.playTracks}
+              />
+            )}
+            {tab === "admin" && me.is_admin && <AdminView token={token} selfId={me.id} />}
+          </Suspense>
         </main>
 
         <PlayerBar
@@ -265,51 +278,55 @@ export default function App() {
         )}
 
         {detail && (
-          <DetailView
-            target={detail}
-            token={token}
-            onClose={() => setDetail(null)}
-            onPlay={queueApi.playTracks}
-            onPlayNext={queueApi.enqueueNext}
-            onEnqueue={queueApi.enqueue}
-            onRadio={(track) => {
-              startRadio(track);
-              setDetail(null);
-            }}
-            onShare={shareTrack}
-            onShareAlbum={shareAlbum}
-            onShareArtist={shareArtist}
-            onOpenDetail={setDetail}
-            playlists={playlistApi.playlists}
-            onAddToPlaylist={playlistApi.addTrackToPlaylist}
-            onCreatePlaylist={playlistApi.createPlaylist}
-            onStartJam={startJamFromMenu}
-            jamActive={!!jamApi.jam}
-          />
+          <Suspense fallback={null}>
+            <DetailView
+              target={detail}
+              token={token}
+              onClose={() => setDetail(null)}
+              onPlay={queueApi.playTracks}
+              onPlayNext={queueApi.enqueueNext}
+              onEnqueue={queueApi.enqueue}
+              onRadio={(track) => {
+                startRadio(track);
+                setDetail(null);
+              }}
+              onShare={shareTrack}
+              onShareAlbum={shareAlbum}
+              onShareArtist={shareArtist}
+              onOpenDetail={setDetail}
+              playlists={playlistApi.playlists}
+              onAddToPlaylist={playlistApi.addTrackToPlaylist}
+              onCreatePlaylist={playlistApi.createPlaylist}
+              onStartJam={startJamFromMenu}
+              jamActive={!!jamApi.jam}
+            />
+          </Suspense>
         )}
 
         {jamPanelOpen && (
           jamApi.jam ? (
-            <JamRoom
-              searchToken={token}
-              members={jamApi.members}
-              queueLog={jamApi.queueLog}
-              live={jamApi.live}
-              recommendations={jamApi.recommendations}
-              ended={jamApi.ended}
-              onAddTrack={jamApi.addTrack}
-              isHost
-              onCommand={jamApi.sendCommand}
-              isSource={jamApi.isSource}
-              settings={jamApi.settings}
-              onUpdateSettings={jamApi.updateSettings}
-              joinUrl={jamApi.joinUrl}
-              onEndJam={() => {
-                jamApi.endJam();
-                setJamPanelOpen(false);
-              }}
-              onClose={() => setJamPanelOpen(false)}
-            />
+            <Suspense fallback={null}>
+              <JamRoom
+                searchToken={token}
+                members={jamApi.members}
+                queueLog={jamApi.queueLog}
+                live={jamApi.live}
+                recommendations={jamApi.recommendations}
+                ended={jamApi.ended}
+                onAddTrack={jamApi.addTrack}
+                isHost
+                onCommand={jamApi.sendCommand}
+                isSource={jamApi.isSource}
+                settings={jamApi.settings}
+                onUpdateSettings={jamApi.updateSettings}
+                joinUrl={jamApi.joinUrl}
+                onEndJam={() => {
+                  jamApi.endJam();
+                  setJamPanelOpen(false);
+                }}
+                onClose={() => setJamPanelOpen(false)}
+              />
+            </Suspense>
           ) : (
             <div className="jam-start-cta">
               <button onClick={() => setJamPanelOpen(false)} title="Close" className="jam-start-cta-close">
