@@ -1,10 +1,12 @@
 mod auth;
 mod lidarr;
+mod musicbrainz;
 mod oidc;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use auth::{create_session, generate_token, hash_password, verify_password, AdminUser, AuthUser, JamMember, Searcher};
 use axum::{
@@ -52,6 +54,9 @@ struct AppState {
     /// endpoints) — a fresh `reqwest::Client` per request would rebuild
     /// its connection pool and TLS config every time for no benefit.
     http: reqwest::Client,
+    /// Gates outbound MusicBrainz lookups (`musicbrainz.rs`) to roughly one
+    /// request/second, per their anonymous-client API policy.
+    mb_last_call: Arc<Mutex<Instant>>,
 }
 
 /// Generic `settings` key/value store (see migrations/0002_settings.sql) —
@@ -120,6 +125,7 @@ async fn main() {
         jam_tx,
         jam_live,
         http: reqwest::Client::new(),
+        mb_last_call: Arc::new(Mutex::new(Instant::now() - std::time::Duration::from_secs(2))),
     };
 
     {
