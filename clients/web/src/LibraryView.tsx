@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { fetchLikes, fetchPlaylistDetail, type PlaylistSummary } from "./api";
+import { fetchLikes, fetchLocalLibrary, fetchPlaylistDetail, type PlaylistSummary } from "./api";
+import { EmptyState } from "./EmptyState";
+import { LibraryIcon } from "./icons";
 import { LikeButton } from "./LikeButton";
 import { useLikesContext } from "./LikesContext";
 import { TrackRow } from "./TrackRow";
@@ -17,7 +19,7 @@ interface Props {
   onPlay: (tracks: Track[], startId?: string) => void;
 }
 
-export function PlaylistsView({
+export function LibraryView({
   token,
   selfId,
   playlists,
@@ -40,6 +42,10 @@ export function PlaylistsView({
   const [openOtherId, setOpenOtherId] = useState<string | null>(null);
   const [otherTracks, setOtherTracks] = useState<Record<string, Track[]>>({});
   const otherPlaylists = allPlaylists.filter((pl) => pl.owner_id !== selfId);
+
+  const [localTracks, setLocalTracks] = useState<Track[]>([]);
+  const [localOpen, setLocalOpen] = useState(false);
+  const [localShuffleKey, setLocalShuffleKey] = useState(0);
 
   // Collaborative playlists are editable by anyone, but `otherTracks` is
   // this component's own cache (fetched lazily on expand) — removing a
@@ -70,6 +76,14 @@ export function PlaylistsView({
     fetchLikes(token).then(setLikedTracks);
   }, [token]);
 
+  // Only fetched once the section is actually opened — browsing the local
+  // folder isn't the common path, so there's no reason to pull a shuffled
+  // sample on every Library page visit.
+  useEffect(() => {
+    if (!localOpen) return;
+    fetchLocalLibrary(token).then(setLocalTracks);
+  }, [token, localOpen, localShuffleKey]);
+
   // Filtered live against the shared likes context, so unliking a track
   // from this list removes it immediately instead of waiting for a refetch.
   const visibleLikedTracks = likedTracks.filter(isLiked);
@@ -83,14 +97,7 @@ export function PlaylistsView({
 
   return (
     <section>
-      <form className="playlists-create-form" onSubmit={createPlaylist}>
-        <input
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          placeholder="New playlist name..."
-        />
-        <button type="submit">Create</button>
-      </form>
+      <h2>Liked Songs</h2>
       <ul className="playlist-list">
         <li>
           <div className="playlist-header">
@@ -109,6 +116,18 @@ export function PlaylistsView({
             </ul>
           )}
         </li>
+      </ul>
+
+      <h2>Your Playlists</h2>
+      <form className="playlists-create-form" onSubmit={createPlaylist}>
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="New playlist name..."
+        />
+        <button type="submit">Create</button>
+      </form>
+      <ul className="playlist-list">
         {playlists.map((pl) => (
           <li key={pl.id}>
             <div className="playlist-header">
@@ -134,9 +153,48 @@ export function PlaylistsView({
         ))}
       </ul>
 
+      <h2>Your Music Library</h2>
+      <ul className="playlist-list">
+        <li>
+          <div className="playlist-header">
+            <button onClick={() => setLocalOpen((open) => !open)}>
+              {localOpen ? "▾" : "▸"} Browse local files
+            </button>
+            {localOpen && (
+              <>
+                {localTracks.length > 0 && <button onClick={() => onPlay(localTracks)}>Play</button>}
+                <button onClick={() => setLocalShuffleKey((k) => k + 1)}>Shuffle again</button>
+              </>
+            )}
+          </div>
+          {localOpen && localTracks.length === 0 && (
+            <EmptyState
+              icon={<LibraryIcon />}
+              title="No local files found"
+              message="Nothing in your local music folder yet — tracks you like get downloaded here, or add files directly to the library path."
+            />
+          )}
+          {localOpen && localTracks.length > 0 && (
+            <>
+              <p className="jam-room-empty">
+                A shuffled sample from your local music folder — not yet grouped by artist or album.
+              </p>
+              <ul className="track-list">
+                {localTracks.map((track) => (
+                  <TrackRow key={track.id} track={track} onPlay={() => onPlay(localTracks, track.id)}>
+                    <LikeButton track={track} />
+                  </TrackRow>
+                ))}
+              </ul>
+            </>
+          )}
+        </li>
+      </ul>
+
       {otherPlaylists.length > 0 && (
         <>
-          <h3>From other people on this server</h3>
+          <h2>Shared Playlists</h2>
+          <p className="jam-room-empty">From other people on this server</p>
           <ul className="playlist-list">
             {otherPlaylists.map((pl) => {
               const tracks = otherTracks[pl.id] ?? [];

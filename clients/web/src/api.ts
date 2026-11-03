@@ -18,6 +18,16 @@ export async function fetchLikes(token: string): Promise<Track[]> {
   return data.results ?? [];
 }
 
+// A shuffled sample from the local filesystem provider — not grouped by
+// artist/album, since that provider derives tracks from filename/folder
+// only and has no tagging/grouping yet.
+export async function fetchLocalLibrary(token: string, limit = 60): Promise<Track[]> {
+  const res = await fetch(`/api/library/local?limit=${limit}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.results ?? [];
+}
+
 export async function likeTrack(token: string, track: Track): Promise<void> {
   await fetch("/api/likes", {
     method: "POST",

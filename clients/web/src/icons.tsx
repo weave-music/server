@@ -60,6 +60,16 @@ export function PlaylistIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function LibraryIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <rect x="3" y="10" width="18" height="4" rx="1" />
+      <rect x="3" y="16" width="18" height="4" rx="1" />
+    </Icon>
+  );
+}
+
 export function AdminIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <Icon {...props}>

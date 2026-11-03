@@ -158,6 +158,7 @@ async fn main() {
         .route("/api/search", get(search))
         .route("/api/search/playlists", get(search_playlists))
         .route("/api/featured", get(featured))
+        .route("/api/library/local", get(library_local))
         .route("/api/radio", get(radio))
         .route("/api/lyrics", get(lyrics))
         .route("/api/artist", get(artist_tracks))
@@ -594,6 +595,34 @@ async fn featured(State(state): State<AppState>, _user: AuthUser) -> Json<serde_
     }
     results.shuffle(&mut rand::thread_rng());
     Json(serde_json::json!({ "results": results }))
+}
+
+#[derive(Deserialize)]
+struct LibraryLocalParams {
+    limit: Option<usize>,
+}
+
+/// A shuffled sample of the local filesystem provider's tracks, for the
+/// Library page's "Your Music Library" section. Reuses the same
+/// `browse()` the local provider already implements for `/api/featured`
+/// — no grouping by artist/album, since the provider derives tracks from
+/// filename/folder only (see weave-provider-local's own doc comment) and
+/// doesn't have a notion of artists/albums to group by yet.
+async fn library_local(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Query(params): Query<LibraryLocalParams>,
+) -> Response {
+    let Some(provider) = state.provider("local") else {
+        return Json(serde_json::json!({ "results": [] })).into_response();
+    };
+    match provider.browse(params.limit.unwrap_or(60)).await {
+        Ok(tracks) => Json(serde_json::json!({ "results": tracks })).into_response(),
+        Err(err) => {
+            tracing::warn!(%err, "local library browse failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, "could not browse local library").into_response()
+        }
+    }
 }
 
 #[derive(Deserialize)]

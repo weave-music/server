@@ -26,11 +26,11 @@ const AuthView = lazy(() => import("./AuthView").then((m) => ({ default: m.AuthV
 const AdminView = lazy(() => import("./AdminView").then((m) => ({ default: m.AdminView })));
 const DetailView = lazy(() => import("./DetailView").then((m) => ({ default: m.DetailView })));
 const JamRoom = lazy(() => import("./JamRoom").then((m) => ({ default: m.JamRoom })));
-const PlaylistsView = lazy(() => import("./PlaylistsView").then((m) => ({ default: m.PlaylistsView })));
+const LibraryView = lazy(() => import("./LibraryView").then((m) => ({ default: m.LibraryView })));
 const QueueView = lazy(() => import("./QueueView").then((m) => ({ default: m.QueueView })));
 const ProfileView = lazy(() => import("./ProfileView").then((m) => ({ default: m.ProfileView })));
 
-type Tab = "search" | "discover" | "queue" | "playlists" | "profile" | "admin";
+type Tab = "search" | "discover" | "queue" | "library" | "profile" | "admin";
 
 export default function App() {
   const { token, me, checking, login, setup, register, logout } = useAuth();
@@ -276,8 +276,8 @@ export default function App() {
                 onMove={queueApi.moveInQueue}
               />
             )}
-            {tab === "playlists" && (
-              <PlaylistsView
+            {tab === "library" && (
+              <LibraryView
                 token={token}
                 selfId={me.id}
                 playlists={playlistApi.playlists}
