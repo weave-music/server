@@ -28,9 +28,9 @@ const DetailView = lazy(() => import("./DetailView").then((m) => ({ default: m.D
 const JamRoom = lazy(() => import("./JamRoom").then((m) => ({ default: m.JamRoom })));
 const PlaylistsView = lazy(() => import("./PlaylistsView").then((m) => ({ default: m.PlaylistsView })));
 const QueueView = lazy(() => import("./QueueView").then((m) => ({ default: m.QueueView })));
-const StatsView = lazy(() => import("./StatsView").then((m) => ({ default: m.StatsView })));
+const ProfileView = lazy(() => import("./ProfileView").then((m) => ({ default: m.ProfileView })));
 
-type Tab = "search" | "discover" | "queue" | "playlists" | "stats" | "admin";
+type Tab = "search" | "discover" | "queue" | "playlists" | "profile" | "admin";
 
 export default function App() {
   const { token, me, checking, login, setup, register, logout } = useAuth();
@@ -233,9 +233,6 @@ export default function App() {
           <button className="app-jam-button" onClick={openJamPanel} title="Weave Jam">
             <JamIcon /> {jamApi.jam ? "Jam" : "Start a Jam"}
           </button>
-          <span className="app-user">
-            {me.username} <button onClick={logout}>Log out</button>
-          </span>
         </header>
 
         <main>
@@ -281,8 +278,8 @@ export default function App() {
                 onPlay={queueApi.playTracks}
               />
             )}
-            {tab === "stats" && (
-              <StatsView token={token} playlistCount={playlistApi.playlists.length} onPlay={queueApi.playTracks} />
+            {tab === "profile" && (
+              <ProfileView token={token} me={me} playlistCount={playlistApi.playlists.length} onPlay={queueApi.playTracks} onLogout={logout} />
             )}
             {tab === "admin" && me.is_admin && <AdminView token={token} selfId={me.id} />}
           </Suspense>

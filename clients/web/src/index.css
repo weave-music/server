@@ -627,12 +627,6 @@ button:disabled {
   width: 90px;
 }
 
-.app-user {
-  margin-left: auto;
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-}
-
 .search-panel {
   position: relative;
   max-width: 760px;
@@ -1342,6 +1336,42 @@ form label {
   font-size: 0.9rem;
   margin: 0;
   max-width: 320px;
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.profile-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--accent), #0ea5e9);
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.profile-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.profile-header-text h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stats-summary {

@@ -7,13 +7,20 @@ import { Spinner } from "./Spinner";
 import { TrackRow } from "./TrackRow";
 import type { Track } from "./types";
 
-interface Props {
-  token: string;
-  playlistCount: number;
-  onPlay: (tracks: Track[], startId?: string) => void;
+interface Me {
+  username: string;
+  is_admin: boolean;
 }
 
-export function StatsView({ token, playlistCount, onPlay }: Props) {
+interface Props {
+  token: string;
+  me: Me;
+  playlistCount: number;
+  onPlay: (tracks: Track[], startId?: string) => void;
+  onLogout: () => void;
+}
+
+export function ProfileView({ token, me, playlistCount, onPlay, onLogout }: Props) {
   const [likedCount, setLikedCount] = useState<number | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
 
@@ -26,7 +33,14 @@ export function StatsView({ token, playlistCount, onPlay }: Props) {
 
   return (
     <section>
-      <h2>Your Stats</h2>
+      <div className="profile-header">
+        <div className="profile-avatar">{me.username.slice(0, 1).toUpperCase()}</div>
+        <div className="profile-header-text">
+          <h2>{me.username}</h2>
+          {me.is_admin && <span className="tag">Admin</span>}
+        </div>
+        <button onClick={onLogout}>Log out</button>
+      </div>
 
       <div className="stats-summary">
         <div className="stats-summary-item">
