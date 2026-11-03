@@ -247,6 +247,7 @@ impl YtDlpProvider {
             artist_ref: entry.channel_id,
             album_name: None,
             album_ref: None,
+            upgrade_status: None,
         }
     }
 
@@ -271,6 +272,7 @@ impl YtDlpProvider {
             artist_ref: s.artist_ref,
             album_name: s.album_name,
             album_ref: s.album_ref,
+            upgrade_status: None,
         }
     }
 
@@ -588,6 +590,7 @@ impl MediaProvider for YtDlpProvider {
                 artist_ref: t.artist_ref,
                 album_name: Some(album_name.clone()),
                 album_ref: Some(album_ref.to_string()),
+                upgrade_status: None,
             })
             .collect())
     }

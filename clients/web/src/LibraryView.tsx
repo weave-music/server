@@ -109,7 +109,12 @@ export function LibraryView({
           {likedOpen && (
             <ul className="track-list">
               {visibleLikedTracks.map((track) => (
-                <TrackRow key={track.id} track={track} onPlay={() => onPlay(visibleLikedTracks, track.id)}>
+                <TrackRow
+                  key={track.id}
+                  track={track}
+                  onPlay={() => onPlay(visibleLikedTracks, track.id)}
+                  upgradeStatus={track.upgrade_status}
+                >
                   <LikeButton track={track} />
                 </TrackRow>
               ))}

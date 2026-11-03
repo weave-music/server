@@ -139,6 +139,17 @@ async fn main() {
         });
     }
 
+    {
+        let sweep_state = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                sweep_track_upgrades(&sweep_state).await;
+            }
+        });
+    }
+
     let app = Router::new()
         .route("/health", get(health))
         .route("/rest/ping.view", get(subsonic_ping))
@@ -935,9 +946,193 @@ async fn like_track(State(state): State<AppState>, user: AuthUser, Json(track): 
                 source.provider_id.clone(),
                 source.source_ref.clone(),
             ));
+            tokio::spawn(maybe_upgrade_via_lidarr(
+                state.db.clone(),
+                state.http.clone(),
+                state.mb_last_call.clone(),
+                source.provider_id.clone(),
+                source.source_ref.clone(),
+                track.title.clone(),
+                track.artist_name.clone(),
+                track.album_name.clone(),
+            ));
             StatusCode::NO_CONTENT.into_response()
         }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not like track").into_response(),
+    }
+}
+
+async fn upsert_track_upgrade(
+    db: &SqlitePool,
+    provider_id: &str,
+    source_ref: &str,
+    status: &str,
+    lidarr_artist_id: Option<i64>,
+    lidarr_album_id: Option<i64>,
+) {
+    let _ = sqlx::query(
+        "INSERT INTO track_upgrades (provider_id, source_ref, status, lidarr_artist_id, lidarr_album_id, updated_at) \
+         VALUES (?, ?, ?, ?, ?, datetime('now')) \
+         ON CONFLICT (provider_id, source_ref) DO UPDATE SET \
+         status = excluded.status, lidarr_artist_id = excluded.lidarr_artist_id, \
+         lidarr_album_id = excluded.lidarr_album_id, updated_at = excluded.updated_at",
+    )
+    .bind(provider_id)
+    .bind(source_ref)
+    .bind(status)
+    .bind(lidarr_artist_id)
+    .bind(lidarr_album_id)
+    .execute(db)
+    .await;
+}
+
+fn normalize_title(title: &str) -> String {
+    title.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
+/// Fire-and-forget companion to `download_track_in_background`: if Lidarr
+/// is configured, finds the liked track's matching album in Lidarr (adding
+/// the artist first if needed) and requests just that one album — not the
+/// whole discography — rather than relying on the user to notice and use
+/// the existing manual "Request artist" search flow.
+async fn maybe_upgrade_via_lidarr(
+    db: SqlitePool,
+    http: reqwest::Client,
+    mb_last_call: Arc<Mutex<Instant>>,
+    provider_id: String,
+    source_ref: String,
+    title: String,
+    artist_name: Option<String>,
+    album_name: Option<String>,
+) {
+    // Already-local tracks don't need upgrading, and Lidarr requests are
+    // artist/album-shaped — nothing sensible to look up without an artist.
+    if provider_id != "ytdlp" {
+        return;
+    }
+    let Some(artist) = artist_name.filter(|a| !a.trim().is_empty()) else { return };
+    let Some(cfg) = lidarr::load_config(&db).await else { return };
+
+    let mb = musicbrainz::lookup_recording(&db, &http, &mb_last_call, &artist, &title).await;
+    let release_group_mbid = mb.as_ref().and_then(|r| r.release_group_mbid.clone());
+    let Some(album_title) = mb.as_ref().and_then(|r| r.canonical_album.clone()).or(album_name) else {
+        upsert_track_upgrade(&db, &provider_id, &source_ref, "no_match", None, None).await;
+        return;
+    };
+
+    let Some(found) = lidarr::lookup_artist(&http, &cfg, &artist).await else {
+        upsert_track_upgrade(&db, &provider_id, &source_ref, "no_match", None, None).await;
+        return;
+    };
+    let existing_id = found.get("id").and_then(|v| v.as_i64()).filter(|&id| id != 0);
+    let lidarr_artist_id = match existing_id {
+        Some(id) => id,
+        None => {
+            let foreign_artist_id = found.get("foreignArtistId").and_then(|v| v.as_str()).unwrap_or_default();
+            let artist_name = found.get("artistName").and_then(|v| v.as_str()).unwrap_or(&artist);
+            if foreign_artist_id.is_empty() {
+                upsert_track_upgrade(&db, &provider_id, &source_ref, "no_match", None, None).await;
+                return;
+            }
+            match lidarr::add_artist_targeted(&http, &cfg, foreign_artist_id, artist_name).await {
+                Some(created) => match created.get("id").and_then(|v| v.as_i64()) {
+                    Some(id) => id,
+                    None => {
+                        upsert_track_upgrade(&db, &provider_id, &source_ref, "no_match", None, None).await;
+                        return;
+                    }
+                },
+                None => {
+                    upsert_track_upgrade(&db, &provider_id, &source_ref, "no_match", None, None).await;
+                    return;
+                }
+            }
+        }
+    };
+
+    // A freshly-added artist may not have its album catalog synced from
+    // MusicBrainz yet — retry with backoff before giving up.
+    let mut albums = Vec::new();
+    for attempt in 0..5u32 {
+        albums = lidarr::artist_albums(&http, &cfg, lidarr_artist_id).await;
+        if !albums.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3 * (attempt as u64 + 1))).await;
+    }
+
+    let normalized_target = normalize_title(&album_title);
+    let matched = release_group_mbid
+        .as_deref()
+        .and_then(|rg| albums.iter().find(|a| a.get("foreignAlbumId").and_then(|v| v.as_str()) == Some(rg)))
+        .or_else(|| {
+            albums
+                .iter()
+                .find(|a| a.get("title").and_then(|v| v.as_str()).map(normalize_title).as_deref() == Some(normalized_target.as_str()))
+        });
+
+    let Some(album) = matched else {
+        upsert_track_upgrade(&db, &provider_id, &source_ref, "no_match", Some(lidarr_artist_id), None).await;
+        return;
+    };
+    let Some(album_id) = album.get("id").and_then(|v| v.as_i64()) else {
+        upsert_track_upgrade(&db, &provider_id, &source_ref, "no_match", Some(lidarr_artist_id), None).await;
+        return;
+    };
+
+    if lidarr::set_album_monitored(&http, &cfg, album.clone()).await.is_err() {
+        upsert_track_upgrade(&db, &provider_id, &source_ref, "no_match", Some(lidarr_artist_id), Some(album_id)).await;
+        return;
+    }
+    let _ = lidarr::trigger_album_search(&http, &cfg, album_id).await;
+    upsert_track_upgrade(&db, &provider_id, &source_ref, "requested", Some(lidarr_artist_id), Some(album_id)).await;
+}
+
+/// Periodic check for `track_upgrades` rows still `'requested'`: once
+/// Lidarr's own download lands in the local library, this detects it (via
+/// the local provider's existing `search()`, fuzzy-matched by title — no
+/// MBID-exact matching yet since the local provider doesn't read tags) and
+/// swaps `cached_tracks` to point at the local file. `stream()` already
+/// checks `cached_tracks` first, so no change there is needed — the swap
+/// to serving the better file is automatic.
+async fn sweep_track_upgrades(state: &AppState) {
+    let Some(local) = state.provider("local").cloned() else { return };
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT provider_id, source_ref FROM track_upgrades WHERE status = 'requested'")
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
+
+    for (provider_id, source_ref) in rows {
+        let meta: Option<(String, Option<String>)> =
+            sqlx::query_as("SELECT title, artist_name FROM liked_tracks WHERE provider_id = ? AND source_ref = ? LIMIT 1")
+                .bind(&provider_id)
+                .bind(&source_ref)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten();
+        let Some((title, artist_name)) = meta else { continue };
+        let query_text = match &artist_name {
+            Some(a) => format!("{a} {title}"),
+            None => title.clone(),
+        };
+        let Ok(results) = local.search(&SearchQuery { text: query_text, limit: 5 }).await else { continue };
+        let normalized_title = normalize_title(&title);
+        let Some(matched) = results.iter().find(|t| normalize_title(&t.title) == normalized_title) else { continue };
+        let Some(source) = matched.sources.first() else { continue };
+
+        let _ = sqlx::query("INSERT OR REPLACE INTO cached_tracks (provider_id, source_ref, file_path) VALUES (?, ?, ?)")
+            .bind(&provider_id)
+            .bind(&source_ref)
+            .bind(&source.source_ref)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query("UPDATE track_upgrades SET status = 'upgraded', updated_at = datetime('now') WHERE provider_id = ? AND source_ref = ?")
+            .bind(&provider_id)
+            .bind(&source_ref)
+            .execute(&state.db)
+            .await;
     }
 }
 
@@ -970,12 +1165,16 @@ struct LikedRow {
     album_name: Option<String>,
     artwork_url: Option<String>,
     duration_secs: Option<i64>,
+    upgrade_status: Option<String>,
 }
 
 async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
     let rows: Result<Vec<LikedRow>, _> = sqlx::query_as(
-        "SELECT provider_id, source_ref, title, artist_name, album_name, artwork_url, duration_secs \
-         FROM liked_tracks WHERE user_id = ? ORDER BY liked_at DESC",
+        "SELECT l.provider_id, l.source_ref, l.title, l.artist_name, l.album_name, l.artwork_url, l.duration_secs, \
+                u.status AS upgrade_status \
+         FROM liked_tracks l \
+         LEFT JOIN track_upgrades u ON u.provider_id = l.provider_id AND u.source_ref = l.source_ref \
+         WHERE l.user_id = ? ORDER BY l.liked_at DESC",
     )
     .bind(&user.id)
     .fetch_all(&state.db)
@@ -1002,6 +1201,7 @@ async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
                     artist_ref: None,
                     album_name: r.album_name,
                     album_ref: None,
+                    upgrade_status: r.upgrade_status,
                 })
                 .collect();
             Json(serde_json::json!({ "results": tracks })).into_response()
@@ -1113,6 +1313,7 @@ async fn get_stats(State(state): State<AppState>, user: AuthUser) -> Response {
                         artist_ref: None,
                         album_name: r.album_name,
                         album_ref: None,
+                        upgrade_status: None,
                     },
                 })
                 .collect();
@@ -1235,6 +1436,7 @@ fn playlist_track_to_track(r: PlaylistTrackRow) -> Track {
         artist_ref: r.artist_ref,
         album_name: r.album_name,
         album_ref: r.album_ref,
+        upgrade_status: None,
     }
 }
 
@@ -1527,6 +1729,7 @@ async fn get_playback(State(state): State<AppState>, user: AuthUser) -> Response
         artist_ref: None,
         album_name: row.album_name,
         album_ref: None,
+        upgrade_status: None,
     };
 
     Json(serde_json::json!({

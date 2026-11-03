@@ -43,6 +43,13 @@ pub struct Track {
     /// via `MediaProvider::artist_releases` or when tracks are themselves
     /// fetched through `album_tracks`).
     pub album_ref: Option<String>,
+
+    /// `'requested' | 'upgraded' | 'no_match'` — only ever populated by
+    /// `GET /api/likes` (joined from `track_upgrades`), `None` everywhere
+    /// else. Not a provider concept; see weave-server's Lidarr
+    /// auto-upgrade-on-like pipeline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade_status: Option<String>,
 }
 
 /// A lightweight album/single listing on an artist's page — not a full

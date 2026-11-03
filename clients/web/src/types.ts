@@ -20,6 +20,9 @@ export interface Track {
   // (today: local files via the containing folder, or yt-dlp tracks that
   // came from album_tracks/a YouTube Music release).
   album_ref: string | null;
+  // 'requested' | 'upgraded' | 'no_match' — only ever present on tracks
+  // from fetchLikes (the server joins it from track_upgrades there).
+  upgrade_status?: string | null;
 }
 
 // A lightweight album/single card on an artist page — not a full Track list,

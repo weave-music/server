@@ -142,6 +142,97 @@ pub struct LidarrRequestBody {
     artist_name: String,
 }
 
+/// Internal counterpart to the `lidarr_search` route (artist lookup), used
+/// by the auto-upgrade-on-like pipeline rather than the admin-facing route
+/// — same Lidarr endpoint, but returns the first match as a typed `Value`
+/// instead of relaying the raw response to an HTTP client.
+pub async fn lookup_artist(http: &reqwest::Client, cfg: &LidarrConfig, name: &str) -> Option<serde_json::Value> {
+    let url = format!("{}/api/v1/artist/lookup", cfg.url.trim_end_matches('/'));
+    let res = http.get(&url).header("X-Api-Key", &cfg.api_key).query(&[("term", name)]).send().await.ok()?;
+    if !res.status().is_success() {
+        return None;
+    }
+    let body: Vec<serde_json::Value> = res.json().await.ok()?;
+    body.into_iter().next()
+}
+
+/// Adds an artist to Lidarr without monitoring its whole discography or
+/// triggering a blanket search — used when only one specific album (the
+/// one a liked track came from) should be requested, as opposed to
+/// `lidarr_request_artist`'s existing whole-discography behavior (which
+/// stays as the manual "Request artist" button's path, untouched).
+pub async fn add_artist_targeted(http: &reqwest::Client, cfg: &LidarrConfig, foreign_artist_id: &str, artist_name: &str) -> Option<serde_json::Value> {
+    let payload = serde_json::json!({
+        "artistName": artist_name,
+        "foreignArtistId": foreign_artist_id,
+        "qualityProfileId": cfg.quality_profile_id,
+        "rootFolderPath": cfg.root_folder,
+        "monitored": false,
+        "addOptions": { "monitor": "none", "searchForMissingAlbums": false },
+    });
+    let res = http
+        .post(format!("{}/api/v1/artist", cfg.url.trim_end_matches('/')))
+        .header("X-Api-Key", &cfg.api_key)
+        .json(&payload)
+        .send()
+        .await
+        .ok()?;
+    if !res.status().is_success() {
+        let status = res.status();
+        let text = res.text().await.unwrap_or_default();
+        tracing::warn!("lidarr targeted artist add failed: {status} {text}");
+        return None;
+    }
+    res.json().await.ok()
+}
+
+/// Lists an artist's albums already known to Lidarr (requires the artist to
+/// already be in Lidarr's library — call after `add_artist_targeted` or for
+/// an artist `lookup_artist` reported as already present).
+pub async fn artist_albums(http: &reqwest::Client, cfg: &LidarrConfig, artist_id: i64) -> Vec<serde_json::Value> {
+    let url = format!("{}/api/v1/album", cfg.url.trim_end_matches('/'));
+    let res = http.get(&url).header("X-Api-Key", &cfg.api_key).query(&[("artistId", artist_id.to_string())]).send().await;
+    match res {
+        Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// Flips one album to monitored, which Lidarr's PUT expects as the full
+/// resource back (not a partial patch) — `album` should be one of the
+/// `Value`s returned by `artist_albums`.
+pub async fn set_album_monitored(http: &reqwest::Client, cfg: &LidarrConfig, mut album: serde_json::Value) -> Result<(), ()> {
+    let Some(id) = album.get("id").and_then(|v| v.as_i64()) else { return Err(()) };
+    album["monitored"] = serde_json::Value::Bool(true);
+    let res = http
+        .put(format!("{}/api/v1/album/{id}", cfg.url.trim_end_matches('/')))
+        .header("X-Api-Key", &cfg.api_key)
+        .json(&album)
+        .send()
+        .await;
+    match res {
+        Ok(r) if r.status().is_success() => Ok(()),
+        _ => Err(()),
+    }
+}
+
+/// Triggers Lidarr's own search for just this album, rather than relying
+/// on `searchForMissingAlbums` at artist-add time (which searches
+/// everything monitored, not one album).
+pub async fn trigger_album_search(http: &reqwest::Client, cfg: &LidarrConfig, album_id: i64) -> Result<(), ()> {
+    let payload = serde_json::json!({ "name": "AlbumSearch", "albumIds": [album_id] });
+    let res = http
+        .post(format!("{}/api/v1/command", cfg.url.trim_end_matches('/')))
+        .header("X-Api-Key", &cfg.api_key)
+        .json(&payload)
+        .send()
+        .await;
+    match res {
+        Ok(r) if r.status().is_success() => Ok(()),
+        _ => Err(()),
+    }
+}
+
 pub async fn lidarr_request_artist(
     State(state): State<AppState>,
     _user: AuthUser,
