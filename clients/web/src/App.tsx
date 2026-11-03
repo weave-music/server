@@ -291,7 +291,6 @@ export default function App() {
         <PlayerBar
           queueApi={queueApi}
           onExpand={() => setNowPlayingOpen(true)}
-          onShare={shareTrack}
           isRemote={isRemote}
           onRemoteCommand={jamApi.sendCommand}
           remoteVolume={jamApi.live?.volume}

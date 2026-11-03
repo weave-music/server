@@ -12,6 +12,7 @@ import {
   PlayIcon,
   QueueIcon,
   RepeatIcon,
+  ShareIcon,
   ShuffleIcon,
   SkipBackIcon,
   SkipForwardIcon,
@@ -169,7 +170,12 @@ export function NowPlayingView({
             <div className="now-playing-subtitle">{currentTrack.artist_name}</div>
           )}
         </div>
-        <LikeButton track={currentTrack} />
+        <div className="now-playing-info-actions">
+          <LikeButton track={currentTrack} />
+          <button className="now-playing-share" onClick={() => onShare(currentTrack)} title="Share">
+            <ShareIcon />
+          </button>
+        </div>
       </div>
 
       <div className="now-playing-goto">

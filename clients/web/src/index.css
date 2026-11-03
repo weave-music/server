@@ -541,24 +541,6 @@ button:disabled {
   cursor: default;
 }
 
-.player-bar-left-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.1rem;
-  flex-shrink: 0;
-}
-
-.player-bar-share {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  padding: 0.4rem;
-}
-
-.player-bar-share:hover {
-  color: var(--text-primary);
-}
-
 .player-bar .track-overflow {
   z-index: 31;
 }
@@ -1048,11 +1030,30 @@ form label {
   text-align: center;
 }
 
-.now-playing-info .like-button {
+.now-playing-info-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
   flex-shrink: 0;
 }
 
-.now-playing-info .like-button svg {
+.now-playing-info-actions .like-button,
+.now-playing-share {
+  flex-shrink: 0;
+}
+
+.now-playing-share {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.4rem;
+}
+
+.now-playing-share:hover {
+  color: var(--text-primary);
+}
+
+.now-playing-info-actions svg {
   width: 22px;
   height: 22px;
 }
@@ -1718,7 +1719,7 @@ form label {
     order: 1;
   }
 
-  .player-bar-left-actions {
+  .player-bar > .like-button {
     order: 1;
     flex-shrink: 0;
   }
