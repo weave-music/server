@@ -21,7 +21,10 @@ export function TrackRow({ track, onPlay, isCurrent, children }: Props) {
           <Artwork url={track.artwork_url} alt="" />
           <span className="track-play-overlay">{isCurrent ? "♪" : "▶"}</span>
         </span>
-        <span className="track-title">{track.title}</span>
+        <span className="track-title-col">
+          <span className="track-title">{track.title}</span>
+          {track.artist_name && <span className="track-subtitle">{track.artist_name}</span>}
+        </span>
         {source && <span className="tag">{source.is_local ? "local" : "streamed"}</span>}
       </button>
       {children && <div className="track-actions">{children}</div>}

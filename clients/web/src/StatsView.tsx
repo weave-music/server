@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { fetchLikes, fetchStats, type Stats } from "./api";
+import { EmptyState } from "./EmptyState";
 import { EntityCard } from "./EntityCard";
+import { StatsIcon } from "./icons";
 import { Spinner } from "./Spinner";
 import { TrackRow } from "./TrackRow";
 import type { Track } from "./types";
@@ -83,7 +85,11 @@ export function StatsView({ token, playlistCount, onPlay }: Props) {
       )}
 
       {stats && stats.total_plays === 0 && (
-        <p className="jam-room-empty">Play a few tracks and your stats will show up here.</p>
+        <EmptyState
+          icon={<StatsIcon />}
+          title="Nothing here yet"
+          message="Play a few tracks and your stats will show up here."
+        />
       )}
     </section>
   );

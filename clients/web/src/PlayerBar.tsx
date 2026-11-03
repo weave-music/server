@@ -56,7 +56,10 @@ export function PlayerBar({
         {currentTrack ? (
           <>
             <Artwork url={currentTrack.artwork_url} size="md" alt="" />
-            <span className="track-title">{currentTrack.title}</span>
+            <span className="track-title-col">
+              <span className="track-title">{currentTrack.title}</span>
+              {currentTrack.artist_name && <span className="track-subtitle">{currentTrack.artist_name}</span>}
+            </span>
             {remote && <span className="tag">remote</span>}
           </>
         ) : (

@@ -83,7 +83,7 @@ export function PlaylistsView({
 
   return (
     <section>
-      <form onSubmit={createPlaylist}>
+      <form className="playlists-create-form" onSubmit={createPlaylist}>
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}

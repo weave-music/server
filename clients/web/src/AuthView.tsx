@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getOidcLoginEnabled, getRegistrationAllowed, getSetupComplete, oidcLoginUrl } from "./api";
+import { Spinner } from "./Spinner";
 
 type Mode = "login" | "setup" | "register";
 
@@ -46,57 +47,59 @@ export function AuthView({ onLogin, onSetup, onRegister }: Props) {
 
   return (
     <div className="auth-view">
-      <h1>Weave</h1>
-      <form onSubmit={submit}>
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="Username"
-          autoFocus
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-        />
-        {mode === "login" && (
-          <label className="auth-remember-me">
-            <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
-            Remember me
-          </label>
+      <h1 className="auth-wordmark">Weave</h1>
+      <div className="auth-card">
+        <form onSubmit={submit}>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Username"
+            autoFocus
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+          />
+          {mode === "login" && (
+            <label className="auth-remember-me">
+              <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+              Remember me
+            </label>
+          )}
+          <button type="submit" disabled={busy}>
+            {busy ? <Spinner /> : submitLabel}
+          </button>
+        </form>
+        {error && <p className="auth-error">{error}</p>}
+
+        {mode === "login" && ssoEnabled && (
+          <a className="auth-toggle auth-sso-button" href={oidcLoginUrl()}>
+            Log in with SSO
+          </a>
         )}
-        <button type="submit" disabled={busy}>
-          {submitLabel}
-        </button>
-      </form>
-      {error && <p className="auth-error">{error}</p>}
 
-      {mode === "login" && ssoEnabled && (
-        <a className="auth-toggle auth-sso-button" href={oidcLoginUrl()}>
-          Log in with SSO
-        </a>
-      )}
-
-      {mode === "login" && (
-        <>
-          {registrationAllowed && (
-            <button type="button" className="auth-toggle" onClick={() => setMode("register")}>
-              Need an account? Register
-            </button>
-          )}
-          {!setupComplete && (
-            <button type="button" className="auth-toggle" onClick={() => setMode("setup")}>
-              First time? Set up the admin account
-            </button>
-          )}
-        </>
-      )}
-      {mode !== "login" && (
-        <button type="button" className="auth-toggle" onClick={() => setMode("login")}>
-          Already have an account? Log in
-        </button>
-      )}
+        {mode === "login" && (
+          <>
+            {registrationAllowed && (
+              <button type="button" className="auth-toggle" onClick={() => setMode("register")}>
+                Need an account? Register
+              </button>
+            )}
+            {!setupComplete && (
+              <button type="button" className="auth-toggle" onClick={() => setMode("setup")}>
+                First time? Set up the admin account
+              </button>
+            )}
+          </>
+        )}
+        {mode !== "login" && (
+          <button type="button" className="auth-toggle" onClick={() => setMode("login")}>
+            Already have an account? Log in
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { EmptyState } from "./EmptyState";
+import { QueueIcon } from "./icons";
 import { LikeButton } from "./LikeButton";
 import { TrackRow } from "./TrackRow";
 import type { Track } from "./types";
@@ -14,7 +16,11 @@ export function QueueView({ queue, currentTrackId, onPlay, onRemove, onMove }: P
   if (queue.length === 0) {
     return (
       <section>
-        <p>Queue is empty. Play something from Search to get started.</p>
+        <EmptyState
+          icon={<QueueIcon />}
+          title="Queue is empty"
+          message="Play something from Search or Discover to get started."
+        />
       </section>
     );
   }

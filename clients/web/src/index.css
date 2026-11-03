@@ -1,3 +1,41 @@
+:root {
+  /* Surfaces — layered from deepest (page) to most elevated (popovers),
+     each a touch lighter than the last so stacked panels read as
+     physically closer rather than just "a different gray". */
+  --bg-base: #0d0d11;
+  --bg-surface: #17171c;
+  --bg-surface-2: #1f1f26;
+  --bg-surface-3: #292931;
+
+  /* Hairline borders as translucent white rather than a flat gray, so the
+     same value works correctly on every surface layer above. */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --text-primary: #f5f5f7;
+  --text-secondary: #a3a3ad;
+  --text-tertiary: #6e6e78;
+
+  --accent: #1ed760;
+  --accent-hover: #3df07d;
+  --accent-text: #04140a;
+  --accent-soft-bg: rgba(30, 215, 96, 0.14);
+  --accent-soft-border: rgba(30, 215, 96, 0.35);
+
+  --danger: #f2545b;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.55);
+
+  --transition: 150ms ease;
+}
+
 * {
   box-sizing: border-box;
   /* Kills the blue/gray flash mobile browsers draw on tap by default —
@@ -6,11 +44,49 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+html {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
-  background: #121212;
-  color: #eee;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Custom thin scrollbar — the browser default is a jarring light-gray
+   block against this dark theme. Firefox + WebKit both covered. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-surface-3) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--bg-surface-3);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  background-clip: padding-box;
 }
 
 .app {
@@ -25,31 +101,57 @@ body {
   align-items: center;
   gap: 1.5rem;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-header h1::before {
+  content: "";
+  display: inline-block;
+  width: 0.65em;
+  height: 0.65em;
+  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+  background: linear-gradient(135deg, var(--accent), #0ea5e9);
 }
 
 .app-header nav button,
 .app-nav-mobile button {
   background: none;
   border: none;
-  color: #999;
-  font-size: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 500;
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
+  padding: 0.4rem 0.2rem;
+  border-bottom: 2px solid transparent;
+  transition: color var(--transition);
+}
+
+.app-header nav button:hover,
+.app-nav-mobile button:hover {
+  color: var(--text-primary);
 }
 
 .app-header nav button.active,
 .app-nav-mobile button.active {
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .app-header nav button.active {
-  border-bottom: 2px solid #1db954;
+  border-bottom-color: var(--accent);
+}
+
+.app-header nav {
+  display: flex;
+  gap: 1.25rem;
 }
 
 /* NavTabs renders icon + label always; desktop header only wants the text
@@ -78,19 +180,37 @@ form {
 input,
 select,
 button {
-  background: #222;
-  color: #eee;
-  border: 1px solid #333;
-  border-radius: 6px;
-  padding: 0.4rem 0.6rem;
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
   font-size: 0.9rem;
+  transition: background var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-surface-3);
+  border-color: var(--border-strong);
 }
 
 /* Themes both the thumb and the browser's native filled-progress portion
    of every seek/volume slider to match the app's accent color, instead of
    each browser's own default (blue on most). */
 input[type="range"] {
-  accent-color: #1db954;
+  accent-color: var(--accent);
 }
 
 /* 16px prevents iOS Safari from zooming the page in on focus. */
@@ -118,6 +238,27 @@ button:disabled {
   cursor: default;
 }
 
+/* Primary call-to-action buttons — the few places a user takes the
+   "main" action on a screen (log in, submit a search, create a
+   playlist) stand out with a filled accent fill instead of looking
+   identical to every secondary/icon button around them. */
+.auth-card form > button[type="submit"],
+.search-form button[type="submit"],
+.playlists-create-form button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.auth-card form > button[type="submit"]:hover:not(:disabled),
+.search-form button[type="submit"]:hover:not(:disabled),
+.playlists-create-form button[type="submit"]:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
 .track-list {
   list-style: none;
   margin: 0;
@@ -128,16 +269,19 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #222;
+  padding: 0.5rem 0.6rem;
+  margin: 0 -0.6rem;
+  border-radius: var(--radius-sm);
+  border-bottom: 1px solid transparent;
+  transition: background var(--transition);
 }
 
 .track-list li:hover {
-  background: #2a2a2a;
+  background: var(--bg-surface-2);
 }
 
 .track-list li.current .track-title {
-  color: #1db954;
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -159,8 +303,8 @@ button:disabled {
 .artwork {
   display: block;
   object-fit: cover;
-  border-radius: 4px;
-  background: #2a2a2a;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
   flex-shrink: 0;
 }
 
@@ -184,7 +328,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #555;
+  color: var(--text-tertiary);
 }
 
 .artwork-placeholder svg {
@@ -197,7 +341,7 @@ button:disabled {
   padding: 0;
   border: none;
   background: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   line-height: 0;
   flex-shrink: 0;
 }
@@ -211,10 +355,10 @@ button:disabled {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.25);
-  color: #fff;
+  color: var(--text-primary);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  border-radius: 4px;
-  transition: background 0.15s ease;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
 }
 
 .track-main:hover .track-play-overlay,
@@ -223,7 +367,23 @@ button:disabled {
 }
 
 .track-list li.current .track-play-overlay {
-  color: #1db954;
+  color: var(--accent);
+}
+
+.track-title-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.track-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .track-actions {
@@ -251,10 +411,10 @@ button:disabled {
   z-index: 30;
   min-width: 190px;
   padding: 0.35rem;
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
 }
 
 .track-overflow-menu button {
@@ -268,20 +428,20 @@ button:disabled {
 
 .track-overflow-menu button:hover:not(:disabled),
 .track-overflow-menu button:focus-visible:not(:disabled) {
-  background: #2a2a2a;
+  background: var(--bg-surface-2);
 }
 
 .track-overflow-heading,
 .track-overflow-empty {
   margin: 0.35rem 0.65rem;
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.8rem;
 }
 
 .like-button {
   background: none;
   border: none;
-  color: #999;
+  color: var(--text-secondary);
   padding: 0.4rem;
 }
 
@@ -290,7 +450,7 @@ button:disabled {
 }
 
 .like-button.liked {
-  color: #e74c3c;
+  color: var(--danger);
 }
 
 .track-title {
@@ -301,11 +461,12 @@ button:disabled {
 }
 
 .tag {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   padding: 0.1rem 0.4rem;
-  border-radius: 3px;
-  background: #333;
-  color: #aaa;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
@@ -320,12 +481,20 @@ button:disabled {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.5rem;
-  padding: 0.3rem 0;
+  padding: 0.5rem 0.6rem;
+  margin: 0 -0.6rem;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+
+.playlist-header:hover {
+  background: var(--bg-surface-2);
 }
 
 .playlist-header button:first-child {
   flex: 1;
   text-align: left;
+  font-weight: 500;
   background: none;
   border: none;
 }
@@ -340,8 +509,9 @@ button:disabled {
   align-items: center;
   gap: 1.5rem;
   padding: 0.75rem 1.5rem;
-  background: #1a1a1a;
-  border-top: 1px solid #2a2a2a;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
 }
 
 .player-bar-track {
@@ -371,6 +541,17 @@ button:disabled {
   gap: 0.5rem;
 }
 
+.player-bar-controls button {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+}
+
+.player-bar-controls button:hover:not(:disabled) {
+  background: var(--bg-surface-2);
+  border: none;
+}
+
 
 .player-bar-seek {
   display: flex;
@@ -385,12 +566,12 @@ button:disabled {
 
 .player-bar-remote-volume span {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .app-user {
   margin-left: auto;
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
@@ -415,10 +596,10 @@ button:disabled {
   right: 0;
   z-index: 25;
   padding: 0.45rem;
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
 }
 
 .search-history-heading {
@@ -426,7 +607,7 @@ button:disabled {
   justify-content: space-between;
   align-items: center;
   padding: 0.35rem 0.55rem;
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.8rem;
 }
 
@@ -434,7 +615,7 @@ button:disabled {
   padding: 0.2rem 0.4rem;
   background: none;
   border: none;
-  color: #1db954;
+  color: var(--accent);
   font-size: 0.8rem;
 }
 
@@ -448,7 +629,7 @@ button:disabled {
 }
 
 .search-history > button:hover {
-  background: #2a2a2a;
+  background: var(--bg-surface-2);
 }
 
 .search-history > button:disabled {
@@ -458,12 +639,12 @@ button:disabled {
 .search-history-icon {
   display: inline-block;
   width: 1.4rem;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .search-history-meta {
   float: right;
-  color: #777;
+  color: var(--text-tertiary);
   font-size: 0.8rem;
 }
 
@@ -488,44 +669,83 @@ button:disabled {
 
 .search-suggestion-artist {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .auth-view {
-  max-width: 320px;
-  margin: 15vh auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 1rem;
+  background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(30, 215, 96, 0.08), transparent);
+}
+
+.auth-wordmark {
+  margin: 0;
+  font-size: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.auth-wordmark::before {
+  content: "";
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%;
+  background: linear-gradient(135deg, var(--accent), #0ea5e9);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 340px;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   text-align: center;
-  padding: 0 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 1.75rem 1.5rem;
 }
 
-.auth-view form {
+.auth-card form {
   flex-direction: column;
 }
 
+.auth-card form input {
+  padding: 0.65rem 0.8rem;
+}
+
 .auth-error {
-  color: #e74c3c;
+  color: var(--danger);
   margin: 0;
+  font-size: 0.85rem;
 }
 
 .auth-toggle {
   background: none;
   border: none;
-  color: #1db954;
+  color: var(--accent);
   text-decoration: underline;
+  font-size: 0.85rem;
 }
 
 .auth-sso-button {
   display: block;
   text-decoration: none;
-  border: 1px solid #1db954;
-  border-radius: 999px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
   padding: 0.65rem 1rem;
+  color: var(--accent);
 }
 
 form label {
@@ -533,7 +753,7 @@ form label {
   align-items: center;
   gap: 0.3rem;
   font-size: 0.9rem;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .auth-remember-me {
@@ -558,7 +778,7 @@ form label {
 
 .home-row-subtitle {
   font-size: 0.8rem;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .home-row-scroll {
@@ -583,32 +803,50 @@ form label {
 
 .home-card .artwork {
   width: 100%;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  transition: transform 0.15s ease;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition), box-shadow var(--transition);
 }
 
 .home-card:hover .artwork {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.home-card:hover .home-card-title {
+  color: var(--text-primary);
 }
 
 .home-card-skeleton {
   aspect-ratio: 1;
-  border-radius: 6px;
-  background: #1e1e1e;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(100deg, var(--bg-surface) 40%, var(--bg-surface-2) 50%, var(--bg-surface) 60%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
 }
 
 .home-card-title {
   font-size: 0.85rem;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  transition: color var(--transition);
 }
 
 .home-card-subtitle {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .home-card-playlist-art {
@@ -616,16 +854,16 @@ form label {
   grid-template-columns: 1fr 1fr;
   gap: 2px;
   aspect-ratio: 1;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  background: #2a2a2a;
+  background: var(--bg-surface-2);
 }
 
 .home-card-playlist-art-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #555;
+  color: var(--text-tertiary);
 }
 
 .home-card-playlist-art-empty svg {
@@ -649,7 +887,7 @@ form label {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  background: #121212;
+  background: var(--bg-base);
   padding: 1rem 1.5rem calc(1.5rem + env(safe-area-inset-bottom));
   overflow-y: auto;
 }
@@ -659,7 +897,7 @@ form label {
   align-items: center;
   justify-content: space-between;
   font-size: 0.8rem;
-  color: #999;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 1.5rem;
@@ -690,9 +928,9 @@ form label {
   justify-content: center;
   gap: 0.5rem;
   background: rgba(29, 185, 84, 0.15);
-  color: #1db954;
+  color: var(--accent);
   border: 1px solid rgba(29, 185, 84, 0.4);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 0.5rem 1rem;
   font-weight: 600;
   font-size: 0.85rem;
@@ -712,7 +950,7 @@ form label {
 
 .now-playing-art .artwork {
   border-radius: 8px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
 }
 
 .now-playing-info {
@@ -748,7 +986,7 @@ form label {
 }
 
 .now-playing-subtitle {
-  color: #999;
+  color: var(--text-secondary);
   margin-top: 0.25rem;
 }
 
@@ -766,7 +1004,7 @@ form label {
   display: flex;
   justify-content: space-between;
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-secondary);
   margin-top: 0.25rem;
 }
 
@@ -778,7 +1016,7 @@ form label {
 
 .now-playing-remote-volume span {
   font-size: 0.75rem;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .now-playing-transport {
@@ -793,7 +1031,7 @@ form label {
 .now-playing-transport button {
   background: none;
   border: none;
-  color: #ccc;
+  color: var(--text-secondary);
   padding: 0.5rem;
   position: relative;
 }
@@ -805,7 +1043,7 @@ form label {
 }
 
 .now-playing-transport button.active {
-  color: #1db954;
+  color: var(--accent);
 }
 
 .now-playing-play {
@@ -829,8 +1067,8 @@ form label {
   top: 0;
   right: 0;
   font-size: 0.6rem;
-  background: #1db954;
-  color: #000;
+  background: var(--accent);
+  color: var(--accent-text);
   border-radius: 50%;
   width: 1rem;
   height: 1rem;
@@ -860,8 +1098,8 @@ form label {
   justify-content: center;
   gap: 0.4rem;
   padding: 0.6rem;
-  border-radius: 999px;
-  background: #222;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
 }
 
 .add-to-playlist {
@@ -879,9 +1117,10 @@ form label {
   bottom: calc(100% + 0.5rem);
   left: 50%;
   transform: translateX(-50%);
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   padding: 0.5rem;
   min-width: 200px;
   max-height: 240px;
@@ -897,15 +1136,15 @@ form label {
   background: none;
   border: none;
   padding: 0.5rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .add-to-playlist-menu button:hover {
-  background: #2a2a2a;
+  background: var(--bg-surface-2);
 }
 
 .add-to-playlist-empty {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   margin: 0.25rem 0.5rem;
 }
@@ -915,7 +1154,7 @@ form label {
   gap: 0.25rem;
   margin: 0.25rem 0 0;
   padding-top: 0.5rem;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border);
 }
 
 .add-to-playlist-menu form input {
@@ -928,14 +1167,14 @@ form label {
   bottom: 96px;
   left: 50%;
   transform: translateX(-50%);
-  background: #1db954;
-  color: #000;
+  background: var(--accent);
+  color: var(--accent-text);
   padding: 0.6rem 1.1rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.9rem;
   font-weight: 600;
   z-index: 50;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-sm);
   animation: toast-in 0.2s ease-out;
   white-space: nowrap;
   max-width: calc(100vw - 2rem);
@@ -959,7 +1198,7 @@ form label {
   width: 1em;
   height: 1em;
   border: 2px solid rgba(255, 255, 255, 0.25);
-  border-top-color: #eee;
+  border-top-color: var(--text-primary);
   border-radius: 50%;
   vertical-align: middle;
   animation: spin 0.7s linear infinite;
@@ -984,17 +1223,50 @@ form label {
 }
 
 .filter-tabs button {
-  border-radius: 999px;
-  background: #1e1e1e;
-  color: #ccc;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   flex-shrink: 0;
   white-space: nowrap;
 }
 
 .filter-tabs button.active {
-  background: #1db954;
-  color: #000;
-  border-color: #1db954;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.4rem;
+  padding: 4rem 1rem;
+  color: var(--text-secondary);
+}
+
+.empty-state-icon {
+  color: var(--text-tertiary);
+  margin-bottom: 0.5rem;
+}
+
+.empty-state-icon svg {
+  width: 44px;
+  height: 44px;
+}
+
+.empty-state-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.empty-state-message {
+  font-size: 0.9rem;
+  margin: 0;
+  max-width: 320px;
 }
 
 .stats-summary {
@@ -1008,18 +1280,25 @@ form label {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: #1e1e1e;
-  border-radius: 10px;
-  padding: 0.75rem 1.25rem;
-  color: #999;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.5rem;
+  color: var(--text-secondary);
   font-size: 0.8rem;
-  min-width: 90px;
+  min-width: 100px;
+  transition: transform var(--transition), border-color var(--transition);
+}
+
+.stats-summary-item:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
 }
 
 .stats-summary-number {
   font-size: 1.6rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .entity-list {
@@ -1040,7 +1319,7 @@ form label {
 }
 
 .entity-row:hover {
-  background: #2a2a2a;
+  background: var(--bg-surface-2);
 }
 
 .entity-row .artwork {
@@ -1058,7 +1337,7 @@ form label {
 }
 
 .entity-subtitle {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.8rem;
 }
 
@@ -1073,11 +1352,11 @@ form label {
 
 .now-playing-goto button {
   background: none;
-  border: 1px solid #333;
-  border-radius: 999px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
   padding: 0.4rem 0.8rem;
   font-size: 0.8rem;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .now-playing-lyrics {
@@ -1092,7 +1371,7 @@ form label {
 .now-playing-lyrics-text {
   font-family: inherit;
   white-space: pre-wrap;
-  color: #ccc;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   margin: 0;
 }
@@ -1105,7 +1384,7 @@ form label {
   z-index: 15;
   display: flex;
   flex-direction: column;
-  background: #121212;
+  background: var(--bg-base);
   padding: 1rem 1.5rem calc(5rem + env(safe-area-inset-bottom));
   overflow-y: auto;
 }
@@ -1117,7 +1396,7 @@ form label {
   background: none;
   border: none;
   padding: 0.5rem 0;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .detail-view-header {
@@ -1137,7 +1416,7 @@ form label {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .detail-view-header h2 {
@@ -1148,7 +1427,7 @@ form label {
   display: block;
   margin: -0.45rem 0 0.65rem;
   padding: 0;
-  color: #1db954;
+  color: var(--accent);
   background: none;
   border: none;
   font-weight: 600;
@@ -1159,7 +1438,7 @@ form label {
   flex-wrap: wrap;
   gap: 0.25rem 0.7rem;
   margin-bottom: 0.8rem;
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
@@ -1187,10 +1466,10 @@ form label {
   z-index: 30;
   min-width: 210px;
   padding: 0.5rem;
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
 }
 
 .album-playlist-menu > button {
@@ -1204,7 +1483,7 @@ form label {
 .album-playlist-menu form {
   margin: 0.5rem 0 0;
   padding-top: 0.5rem;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border);
 }
 
 .album-playlist-menu input {
@@ -1213,7 +1492,7 @@ form label {
 }
 
 .detail-view-note {
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .artist-hero {
@@ -1237,7 +1516,7 @@ form label {
 .artist-stats {
   display: flex;
   gap: 0.75rem;
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
@@ -1250,7 +1529,7 @@ form label {
 }
 
 .detail-pagination span {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
@@ -1261,14 +1540,14 @@ form label {
 }
 
 .artist-hero-actions button {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 0.5rem 1.2rem;
 }
 
 .artist-hero-actions button:first-child {
-  background: #1db954;
-  color: #000;
-  border-color: #1db954;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
 }
 
 /* ---- Mobile ---- */
@@ -1381,8 +1660,8 @@ form label {
     left: 0;
     right: 0;
     justify-content: space-around;
-    background: #1a1a1a;
-    border-top: 1px solid #2a2a2a;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
     padding: 0.4rem 0.25rem calc(0.4rem + env(safe-area-inset-bottom));
     z-index: 18;
   }
@@ -1405,9 +1684,6 @@ form label {
     font-size: 0.65rem;
   }
 
-  .auth-view {
-    margin-top: 10vh;
-  }
 
   .detail-view-header {
     gap: 1rem;
@@ -1439,11 +1715,21 @@ form label {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  background: #222;
-  border-radius: 999px;
+  background: var(--accent-soft-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent-soft-border);
+  border-radius: var(--radius-pill);
   padding: 0.4rem 0.9rem;
   font-size: 0.85rem;
+  font-weight: 600;
   margin-left: 1.5rem;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.app-jam-button:hover {
+  background: rgba(30, 215, 96, 0.22);
+  border-color: var(--accent);
+  transform: translateY(-1px);
 }
 
 .app-jam-button svg {
@@ -1462,7 +1748,7 @@ form label {
   z-index: 15;
   display: flex;
   flex-direction: column;
-  background: #121212;
+  background: var(--bg-base);
   padding: 1rem 1.5rem calc(5rem + env(safe-area-inset-bottom));
   overflow-y: auto;
 }
@@ -1472,7 +1758,7 @@ form label {
   align-items: center;
   justify-content: space-between;
   font-size: 0.8rem;
-  color: #999;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 1.5rem;
@@ -1523,10 +1809,10 @@ form label {
   width: min(320px, calc(100vw - 2rem));
   max-height: calc(100vh - 2rem);
   overflow-y: auto;
-  background: #1a1a1a;
-  border-radius: 16px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
 }
 
 .jam-modal--invite {
@@ -1541,8 +1827,8 @@ form label {
 .jam-modal-close {
   margin-top: 1rem;
   width: 100%;
-  background: #333;
-  border-radius: 999px;
+  background: var(--bg-surface-3);
+  border-radius: var(--radius-pill);
   padding: 0.6rem 1.25rem;
 }
 
@@ -1561,15 +1847,15 @@ form label {
 }
 
 .jam-room-url {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.8rem;
   margin: 0.35rem 0 1rem;
   word-break: break-all;
 }
 
 .jam-room-end {
-  background: #333;
-  border-radius: 999px;
+  background: var(--bg-surface-3);
+  border-radius: var(--radius-pill);
   padding: 0.5rem 1.25rem;
 }
 
@@ -1602,19 +1888,19 @@ form label {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  background: #1e1e1e;
-  border-radius: 999px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-pill);
   padding: 0.35rem 0.75rem;
   font-size: 0.85rem;
 }
 
 .jam-member-host-badge {
-  background: #1db954;
-  color: #000;
+  background: var(--accent);
+  color: var(--accent-text);
   font-size: 0.65rem;
   font-weight: 700;
   text-transform: uppercase;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 0.1rem 0.4rem;
 }
 
@@ -1638,7 +1924,7 @@ form label {
 }
 
 .jam-room-empty {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
@@ -1657,7 +1943,7 @@ form label {
 .jam-now-playing-controls button {
   background: none;
   border: none;
-  color: #ccc;
+  color: var(--text-secondary);
   padding: 0.5rem;
 }
 
@@ -1668,7 +1954,7 @@ form label {
 }
 
 .jam-now-playing-controls button.active {
-  color: #1db954;
+  color: var(--accent);
 }
 
 .jam-shuffle-repeat {
@@ -1696,18 +1982,18 @@ form label {
 }
 
 .jam-now-playing-subtitle {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
 .jam-added-by {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.8rem;
   white-space: nowrap;
 }
 
 .jam-remote-indicator {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.8rem;
   margin: 0 0 0.5rem;
 }
@@ -1720,7 +2006,7 @@ form label {
 }
 
 .jam-volume-control label {
-  color: #999;
+  color: var(--text-secondary);
   font-size: 0.8rem;
 }
 
@@ -1733,13 +2019,15 @@ form label {
 }
 
 .jam-guest-entry {
-  max-width: 320px;
-  margin: 15vh auto;
+  max-width: 340px;
+  min-height: 100vh;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 0.75rem;
   text-align: center;
-  padding: 0 1rem;
+  padding: 1.75rem 1.5rem;
 }
 
 .jam-guest-entry form {

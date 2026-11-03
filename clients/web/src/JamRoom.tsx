@@ -71,7 +71,10 @@ function trackRow(track: Track, key: string, action: React.ReactNode) {
     <li key={key}>
       <div className="track-main">
         <Artwork url={track.artwork_url} alt="" />
-        <span className="track-title">{track.title}</span>
+        <span className="track-title-col">
+          <span className="track-title">{track.title}</span>
+          {track.artist_name && <span className="track-subtitle">{track.artist_name}</span>}
+        </span>
       </div>
       <div className="track-actions">{action}</div>
     </li>
