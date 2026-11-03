@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DetailTarget } from "./DetailView";
 import type { Track } from "./types";
+import type { useSleepTimer } from "./useSleepTimer";
 
 interface Props {
   track: Track;
@@ -18,6 +19,10 @@ interface Props {
   // this skips the landing/CTA screen entirely.
   onStartJam: () => void;
   jamActive: boolean;
+  // Only passed by NowPlayingView's own "..." menu — every other call
+  // site (search results, detail pages, etc.) omits it, so the "Sleep
+  // timer" item only shows up where it actually makes sense.
+  sleepTimer?: ReturnType<typeof useSleepTimer>;
 }
 
 export function TrackOverflowMenu({
@@ -31,9 +36,11 @@ export function TrackOverflowMenu({
   onOpenDetail,
   onStartJam,
   jamActive,
+  sleepTimer,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [choosingPlaylist, setChoosingPlaylist] = useState(false);
+  const [choosingSleepTimer, setChoosingSleepTimer] = useState(false);
   const source = track.sources[0];
   const canViewArtist = Boolean(source && (track.artist_ref || track.artist_name));
   const canViewAlbum = Boolean(source && (track.album_ref || track.album_name || track.title));
@@ -59,7 +66,15 @@ export function TrackOverflowMenu({
   function close() {
     setOpen(false);
     setChoosingPlaylist(false);
+    setChoosingSleepTimer(false);
   }
+
+  const sleepTimerLabel =
+    sleepTimer?.mode?.kind === "duration"
+      ? `Sleep timer: ${sleepTimer.minutesLeft}m left`
+      : sleepTimer?.mode?.kind === "end-of-track"
+        ? "Sleep timer: end of track"
+        : "Sleep timer";
 
   function act(action: () => void | Promise<void>) {
     close();
@@ -95,6 +110,24 @@ export function TrackOverflowMenu({
                   ))
                 )}
               </>
+            ) : choosingSleepTimer && sleepTimer ? (
+              <>
+                <button role="menuitem" onClick={() => setChoosingSleepTimer(false)}>‹ Back</button>
+                <div className="track-overflow-heading">Sleep timer</div>
+                {[15, 30, 45, 60].map((minutes) => (
+                  <button key={minutes} role="menuitem" onClick={() => act(() => sleepTimer.setDurationTimer(minutes))}>
+                    {minutes} minutes
+                  </button>
+                ))}
+                <button role="menuitem" onClick={() => act(() => sleepTimer.setEndOfTrackTimer())}>
+                  End of current track
+                </button>
+                {sleepTimer.mode && (
+                  <button role="menuitem" onClick={() => act(() => sleepTimer.cancelTimer())}>
+                    Turn off
+                  </button>
+                )}
+              </>
             ) : (
               <>
                 <button role="menuitem" onClick={() => act(() => onPlayNext(track))}>Play next</button>
@@ -103,6 +136,11 @@ export function TrackOverflowMenu({
                 <button role="menuitem" onClick={() => act(() => onRadio(track))}>Start radio</button>
                 <button role="menuitem" onClick={() => act(onStartJam)}>{jamActive ? "Jam" : "Start a Jam"}</button>
                 <button role="menuitem" onClick={() => setChoosingPlaylist(true)}>Add to playlist</button>
+                {sleepTimer && (
+                  <button role="menuitem" onClick={() => setChoosingSleepTimer(true)}>
+                    {sleepTimerLabel}
+                  </button>
+                )}
                 {canViewArtist && (
                   <button
                     role="menuitem"

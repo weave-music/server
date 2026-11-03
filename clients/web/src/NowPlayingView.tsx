@@ -8,12 +8,10 @@ import {
   DiscIcon,
   JamIcon,
   LyricsIcon,
-  MoonIcon,
   PauseIcon,
   PlayIcon,
   QueueIcon,
   RepeatIcon,
-  ShareIcon,
   ShuffleIcon,
   SkipBackIcon,
   SkipForwardIcon,
@@ -81,7 +79,6 @@ export function NowPlayingView({
   remoteRepeat,
   sleepTimer,
 }: Props) {
-  const [sleepMenuOpen, setSleepMenuOpen] = useState(false);
   const {
     currentTrack,
     isPlaying: localIsPlaying,
@@ -136,6 +133,7 @@ export function NowPlayingView({
           onOpenDetail={onOpenDetail}
           onStartJam={onStartJam}
           jamActive={jamActive}
+          sleepTimer={sleepTimer}
         />
       </div>
 
@@ -147,7 +145,21 @@ export function NowPlayingView({
       )}
 
       <div className="now-playing-art">
-        <Artwork url={currentTrack.artwork_url} size="lg" alt="" />
+        {lyricsOpen ? (
+          <div className="now-playing-lyrics">
+            {lyrics === undefined ? (
+              <p className="detail-view-note">
+                <Spinner /> Loading lyrics…
+              </p>
+            ) : lyrics === null ? (
+              <p className="detail-view-note">No lyrics found for this track.</p>
+            ) : (
+              <pre className="now-playing-lyrics-text">{lyrics}</pre>
+            )}
+          </div>
+        ) : (
+          <Artwork url={currentTrack.artwork_url} size="lg" alt="" />
+        )}
       </div>
 
       <div className="now-playing-info">
@@ -180,20 +192,6 @@ export function NowPlayingView({
             </button>
           )}
         </div>
-
-      {lyricsOpen && (
-        <div className="now-playing-lyrics">
-          {lyrics === undefined ? (
-            <p className="detail-view-note">
-              <Spinner /> Loading lyrics…
-            </p>
-          ) : lyrics === null ? (
-            <p className="detail-view-note">No lyrics found for this track.</p>
-          ) : (
-            <pre className="now-playing-lyrics-text">{lyrics}</pre>
-          )}
-        </div>
-      )}
 
       {remote ? (
         <div className="now-playing-seek now-playing-remote-volume">
@@ -258,58 +256,10 @@ export function NowPlayingView({
         <button onClick={onOpenQueue}>
           <QueueIcon /> Queue
         </button>
-        <button onClick={() => onShare(currentTrack)}>
-          <ShareIcon /> Share
-        </button>
         <button onClick={() => setLyricsOpen((open) => !open)}>
           <LyricsIcon /> Lyrics
         </button>
-        <button onClick={() => setSleepMenuOpen((open) => !open)}>
-          <MoonIcon />{" "}
-          {sleepTimer.mode?.kind === "duration"
-            ? `${sleepTimer.minutesLeft}m`
-            : sleepTimer.mode?.kind === "end-of-track"
-              ? "End of track"
-              : "Sleep timer"}
-        </button>
       </div>
-
-      {sleepMenuOpen && (
-        <>
-          <div className="menu-backdrop" onClick={() => setSleepMenuOpen(false)} />
-          <div className="add-to-playlist-menu">
-            {[15, 30, 45, 60].map((minutes) => (
-              <button
-                key={minutes}
-                onClick={() => {
-                  sleepTimer.setDurationTimer(minutes);
-                  setSleepMenuOpen(false);
-                }}
-              >
-                {minutes} minutes
-              </button>
-            ))}
-            <button
-              onClick={() => {
-                sleepTimer.setEndOfTrackTimer();
-                setSleepMenuOpen(false);
-              }}
-            >
-              End of current track
-            </button>
-            {sleepTimer.mode && (
-              <button
-                onClick={() => {
-                  sleepTimer.cancelTimer();
-                  setSleepMenuOpen(false);
-                }}
-              >
-                Turn off
-              </button>
-            )}
-          </div>
-        </>
-      )}
     </div>
   );
 }

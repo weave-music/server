@@ -1,13 +1,15 @@
 import { Artwork } from "./Artwork";
 import { formatTime } from "./format";
-import { PauseIcon, PlayIcon, SkipBackIcon, SkipForwardIcon, VolumeIcon } from "./icons";
+import { PauseIcon, PlayIcon, ShareIcon, SkipBackIcon, SkipForwardIcon, VolumeIcon } from "./icons";
 import type { RemoteCommandName } from "./jamApi";
 import { LikeButton } from "./LikeButton";
+import type { Track } from "./types";
 import type { useQueue } from "./useQueue";
 
 interface Props {
   queueApi: ReturnType<typeof useQueue>;
   onExpand: () => void;
+  onShare: (track: Track) => void | Promise<void>;
   // When this device is a jam member but NOT the jam's audio source, the
   // bar controls the source device remotely instead of this device's own
   // (empty) local playback — see the isRemote plumbing in App.tsx.
@@ -23,6 +25,7 @@ interface Props {
 export function PlayerBar({
   queueApi,
   onExpand,
+  onShare,
   isRemote,
   onRemoteCommand,
   remoteVolume,
@@ -69,7 +72,14 @@ export function PlayerBar({
           <span className="track-title">Nothing playing</span>
         )}
       </button>
-      {currentTrack && !remote && <LikeButton track={currentTrack} />}
+      {currentTrack && !remote && (
+        <div className="player-bar-left-actions">
+          <LikeButton track={currentTrack} />
+          <button className="player-bar-share" onClick={() => onShare(currentTrack)} title="Share">
+            <ShareIcon />
+          </button>
+        </div>
+      )}
       <div className="player-bar-controls">
         <button onClick={() => (remote ? onRemoteCommand("prev") : prev())} disabled={!currentTrack} title="Previous">
           <SkipBackIcon />
