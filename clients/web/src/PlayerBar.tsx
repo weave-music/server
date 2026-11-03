@@ -1,7 +1,8 @@
 import { Artwork } from "./Artwork";
 import { formatTime } from "./format";
-import { PauseIcon, PlayIcon, SkipBackIcon, SkipForwardIcon } from "./icons";
+import { PauseIcon, PlayIcon, SkipBackIcon, SkipForwardIcon, VolumeIcon } from "./icons";
 import type { RemoteCommandName } from "./jamApi";
+import { LikeButton } from "./LikeButton";
 import type { useQueue } from "./useQueue";
 
 interface Props {
@@ -34,10 +35,12 @@ export function PlayerBar({
     isPlaying: localIsPlaying,
     currentTime,
     duration,
+    volume,
     togglePlay,
     next,
     prev,
     seek,
+    setVolume,
   } = queueApi;
 
   const remote = isRemote && onRemoteCommand;
@@ -66,11 +69,13 @@ export function PlayerBar({
           <span className="track-title">Nothing playing</span>
         )}
       </button>
+      {currentTrack && !remote && <LikeButton track={currentTrack} />}
       <div className="player-bar-controls">
         <button onClick={() => (remote ? onRemoteCommand("prev") : prev())} disabled={!currentTrack} title="Previous">
           <SkipBackIcon />
         </button>
         <button
+          className="player-bar-play"
           onClick={() => (remote ? onRemoteCommand(isPlaying ? "pause" : "play") : togglePlay())}
           disabled={!currentTrack}
           title={isPlaying ? "Pause" : "Play"}
@@ -105,6 +110,20 @@ export function PlayerBar({
             disabled={!currentTrack}
           />
           <span>{formatTime(duration)}</span>
+        </div>
+      )}
+      {!remote && (
+        <div className="player-bar-volume">
+          <VolumeIcon />
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onChange={(e) => setVolume(Number(e.target.value))}
+            title="Volume"
+          />
         </div>
       )}
     </footer>

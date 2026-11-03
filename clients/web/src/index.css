@@ -208,9 +208,18 @@ button:hover:not(:disabled) {
 
 /* Themes both the thumb and the browser's native filled-progress portion
    of every seek/volume slider to match the app's accent color, instead of
-   each browser's own default (blue on most). */
+   each browser's own default (blue on most) — accent-color keeps the
+   platform's own track/thumb rendering (incl. accessibility behavior)
+   rather than reimplementing it, just recolors it, and sizes it slimmer
+   and more consistently across browsers than each one's own default. */
 input[type="range"] {
   accent-color: var(--accent);
+  block-size: 1.1em;
+  cursor: pointer;
+}
+
+input[type="range"]:disabled {
+  cursor: default;
 }
 
 /* 16px prevents iOS Safari from zooming the page in on focus. */
@@ -538,6 +547,7 @@ button:disabled {
 
 .player-bar-controls {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 
@@ -552,6 +562,31 @@ button:disabled {
   border: none;
 }
 
+/* The one "pop" control in the bar, same white-circle treatment as the
+   full player's play button — everything else here is a plain icon
+   button, so this is what tells you at a glance where play/pause is. */
+.player-bar-play {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--text-primary) !important;
+  color: var(--bg-base) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.player-bar-play:hover:not(:disabled) {
+  background: var(--text-primary) !important;
+  transform: scale(1.05);
+}
+
+.player-bar-play svg {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
 
 .player-bar-seek {
   display: flex;
@@ -564,9 +599,32 @@ button:disabled {
   flex: 1;
 }
 
+.player-bar-seek span {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  min-width: 2.5em;
+}
+
 .player-bar-remote-volume span {
   font-size: 0.75rem;
   color: var(--text-secondary);
+}
+
+.player-bar-volume {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.player-bar-volume svg {
+  width: 18px;
+  height: 18px;
+}
+
+.player-bar-volume input[type="range"] {
+  width: 90px;
 }
 
 .app-user {
@@ -1366,6 +1424,11 @@ form label {
   max-height: 220px;
   overflow-y: auto;
   text-align: center;
+  /* .now-playing is a column flexbox — a flex item with non-visible
+     overflow gets an automatic min-height of 0 per spec (instead of a
+     content-based minimum), so without this it collapses to almost
+     nothing instead of respecting max-height above. */
+  flex-shrink: 0;
 }
 
 .now-playing-lyrics-text {
@@ -1636,10 +1699,19 @@ form label {
     order: 1;
   }
 
+  .player-bar > .like-button {
+    order: 1;
+    flex-shrink: 0;
+  }
+
   .player-bar-controls {
     flex: 0 0 auto;
     justify-content: flex-end;
     order: 1;
+  }
+
+  .player-bar-volume {
+    display: none;
   }
 
   .player-bar-controls button {

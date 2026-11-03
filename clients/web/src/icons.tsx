@@ -257,3 +257,13 @@ export function StatsIcon(props: SVGProps<SVGSVGElement>) {
     </Icon>
   );
 }
+
+export function VolumeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <polygon points="4 9 8 9 12 5 12 19 8 15 4 15 4 9" />
+      <path d="M16.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M19 6a8.5 8.5 0 0 1 0 12" />
+    </Icon>
+  );
+}
