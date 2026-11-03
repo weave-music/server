@@ -1030,14 +1030,7 @@ form label {
   text-align: center;
 }
 
-.now-playing-info-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.1rem;
-  flex-shrink: 0;
-}
-
-.now-playing-info-actions .like-button,
+.now-playing-info .like-button,
 .now-playing-share {
   flex-shrink: 0;
 }
@@ -1053,7 +1046,8 @@ form label {
   color: var(--text-primary);
 }
 
-.now-playing-info-actions svg {
+.now-playing-info .like-button svg,
+.now-playing-share svg {
   width: 22px;
   height: 22px;
 }

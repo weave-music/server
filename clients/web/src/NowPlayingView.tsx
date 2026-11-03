@@ -164,18 +164,16 @@ export function NowPlayingView({
       </div>
 
       <div className="now-playing-info">
+        <LikeButton track={currentTrack} />
         <div className="now-playing-info-text">
           <div className="now-playing-title">{currentTrack.title}</div>
           {currentTrack.artist_name && (
             <div className="now-playing-subtitle">{currentTrack.artist_name}</div>
           )}
         </div>
-        <div className="now-playing-info-actions">
-          <LikeButton track={currentTrack} />
-          <button className="now-playing-share" onClick={() => onShare(currentTrack)} title="Share">
-            <ShareIcon />
-          </button>
-        </div>
+        <button className="now-playing-share" onClick={() => onShare(currentTrack)} title="Share">
+          <ShareIcon />
+        </button>
       </div>
 
       <div className="now-playing-goto">
