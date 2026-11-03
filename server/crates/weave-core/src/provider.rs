@@ -93,4 +93,12 @@ pub trait MediaProvider: Send + Sync {
     async fn playlist_tracks(&self, _playlist_ref: &str, _limit: usize) -> Result<Vec<Track>, ProviderError> {
         Ok(Vec::new())
     }
+
+    /// Lyrics for the given track, when available (today: yt-dlp, via
+    /// YouTube Music's own lyrics lookup — see `ytmusic_bridge.py`).
+    /// `Ok(None)` means "no lyrics for this track" (common — instrumentals,
+    /// local files, etc.), not an error; default: unsupported.
+    async fn lyrics(&self, _source_ref: &str) -> Result<Option<String>, ProviderError> {
+        Ok(None)
+    }
 }

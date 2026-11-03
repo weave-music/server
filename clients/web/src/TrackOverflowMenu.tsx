@@ -1,11 +1,12 @@
 import { useState } from "react";
 import type { DetailTarget } from "./DetailView";
-import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
 
 interface Props {
   track: Track;
-  playlists: Playlist[];
+  // Collaborative by default — every playlist on the server, not just the
+  // caller's own (see usePlaylists.ts's `addablePlaylists`).
+  playlists: { id: string; name: string }[];
   onPlayNext: (track: Track) => void;
   onEnqueue: (track: Track) => void;
   onShare: (track: Track) => void | Promise<void>;

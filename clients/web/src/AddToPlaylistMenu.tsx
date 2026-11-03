@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { PlaylistIcon } from "./icons";
-import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
 
 interface Props {
   track: Track;
-  playlists: Playlist[];
+  // Collaborative by default — every playlist on the server, not just the
+  // caller's own, so this is a minimal {id, name} shape rather than the
+  // full `Playlist` type (which also carries tracks this menu never needs).
+  playlists: { id: string; name: string }[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
   onCreatePlaylist: (name: string, initialTracks?: Track[]) => void;
 }

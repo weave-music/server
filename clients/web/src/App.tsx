@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { DetailTarget } from "./DetailView";
 import { DiscoverView } from "./DiscoverView";
-import { fetchArtistReleases, fetchArtistTracks, fetchRadio, getCacheTtlHours } from "./api";
+import { fetchArtistReleases, fetchArtistTracks, fetchRadio, getCacheTtlHours, recordPlay as recordServerPlay } from "./api";
 import { JamIcon } from "./icons";
 import { dedupeMembers } from "./jamApi";
 import { LikesProvider } from "./LikesContext";
@@ -15,6 +15,7 @@ import { useJam } from "./useJam";
 import { useLikes } from "./useLikes";
 import { useListeningHistory } from "./useListeningHistory";
 import { useQueue } from "./useQueue";
+import { useSleepTimer } from "./useSleepTimer";
 import { usePlaylists } from "./usePlaylists";
 import type { Track } from "./types";
 
@@ -27,8 +28,9 @@ const DetailView = lazy(() => import("./DetailView").then((m) => ({ default: m.D
 const JamRoom = lazy(() => import("./JamRoom").then((m) => ({ default: m.JamRoom })));
 const PlaylistsView = lazy(() => import("./PlaylistsView").then((m) => ({ default: m.PlaylistsView })));
 const QueueView = lazy(() => import("./QueueView").then((m) => ({ default: m.QueueView })));
+const StatsView = lazy(() => import("./StatsView").then((m) => ({ default: m.StatsView })));
 
-type Tab = "search" | "discover" | "queue" | "playlists" | "admin";
+type Tab = "search" | "discover" | "queue" | "playlists" | "stats" | "admin";
 
 export default function App() {
   const { token, me, checking, login, setup, register, logout } = useAuth();
@@ -38,6 +40,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [jamPanelOpen, setJamPanelOpen] = useState(false);
   const queueApi = useQueue(token);
+  const sleepTimer = useSleepTimer(queueApi.pause, queueApi.currentTrack?.id ?? null);
   const jamApi = useJam(token, queueApi);
   // This device is a host-role member of an active jam but didn't start it
   // — the regular player (not just the Jam panel's own controls) should
@@ -99,7 +102,12 @@ export default function App() {
   // view started it (search, discover, a playlist, radio...) — this is what
   // backs the Discover page's "Keep listening" / "similar to" rows.
   useEffect(() => {
-    if (queueApi.currentTrack) history.recordPlay(queueApi.currentTrack);
+    if (!queueApi.currentTrack) return;
+    history.recordPlay(queueApi.currentTrack);
+    // Separate, server-side, real play-count log — backs the Stats page's
+    // "top artists/tracks" (ranked by frequency); the client-local history
+    // above stays untouched, it still backs Discover's "Your artists" row.
+    if (token) recordServerPlay(token, queueApi.currentTrack);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queueApi.currentTrack?.id]);
 
@@ -242,6 +250,7 @@ export default function App() {
               onShare={shareTrack}
               onOpenDetail={setDetail}
               playlists={playlistApi.playlists}
+              addablePlaylists={playlistApi.addablePlaylists}
               onAddToPlaylist={playlistApi.addTrackToPlaylist}
               onStartJam={startJamFromMenu}
               jamActive={!!jamApi.jam}
@@ -272,6 +281,9 @@ export default function App() {
                 onPlay={queueApi.playTracks}
               />
             )}
+            {tab === "stats" && (
+              <StatsView token={token} playlistCount={playlistApi.playlists.length} onPlay={queueApi.playTracks} />
+            )}
             {tab === "admin" && me.is_admin && <AdminView token={token} selfId={me.id} />}
           </Suspense>
         </main>
@@ -291,7 +303,9 @@ export default function App() {
 
         {nowPlayingOpen && (
           <NowPlayingView
+            token={token}
             queueApi={queueApi}
+            sleepTimer={sleepTimer}
             onClose={() => setNowPlayingOpen(false)}
             onOpenQueue={() => {
               setTab("queue");
@@ -303,7 +317,7 @@ export default function App() {
               setDetail(target);
               setNowPlayingOpen(false);
             }}
-            playlists={playlistApi.playlists}
+            playlists={playlistApi.addablePlaylists}
             onAddToPlaylist={playlistApi.addTrackToPlaylist}
             onOpenJam={openJamPanel}
             onStartJam={startJamFromMenu}
@@ -335,7 +349,7 @@ export default function App() {
               onShareAlbum={shareAlbum}
               onShareArtist={shareArtist}
               onOpenDetail={setDetail}
-              playlists={playlistApi.playlists}
+              playlists={playlistApi.addablePlaylists}
               onAddToPlaylist={playlistApi.addTrackToPlaylist}
               onCreatePlaylist={playlistApi.createPlaylist}
               onStartJam={startJamFromMenu}

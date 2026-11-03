@@ -163,12 +163,27 @@ def cmd_album(browse_id):
     return {"title": album.get("title"), "artwork_url": artwork_url, "tracks": tracks}
 
 
+def cmd_lyrics(video_id):
+    # Lyrics aren't looked up by video id directly — get_watch_playlist
+    # returns a "lyrics" browseId for this video, which get_lyrics then
+    # resolves to the actual text. Either step can come back empty (no
+    # lyrics available for this track), which is a normal result, not
+    # an error.
+    watch = get_yt().get_watch_playlist(video_id)
+    browse_id = watch.get("lyrics")
+    if not browse_id:
+        return {"lyrics": None}
+    data = get_yt().get_lyrics(browse_id)
+    return {"lyrics": data.get("lyrics") if data else None}
+
+
 COMMANDS = {
     "songs": lambda args: cmd_songs(args[0], args[1] if len(args) > 1 else 25),
     "artist": lambda args: cmd_artist(args[0]),
     "album": lambda args: cmd_album(args[0]),
     "playlists": lambda args: cmd_playlists(args[0], args[1] if len(args) > 1 else 25),
     "playlist": lambda args: cmd_playlist(args[0], args[1] if len(args) > 1 else 300),
+    "lyrics": lambda args: cmd_lyrics(args[0]),
 }
 
 

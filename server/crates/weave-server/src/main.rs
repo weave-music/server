@@ -159,11 +159,14 @@ async fn main() {
         .route("/api/search/playlists", get(search_playlists))
         .route("/api/featured", get(featured))
         .route("/api/radio", get(radio))
+        .route("/api/lyrics", get(lyrics))
         .route("/api/artist", get(artist_tracks))
         .route("/api/artist/releases", get(artist_releases))
         .route("/api/album", get(album_tracks))
         .route("/api/playlist", get(playlist_tracks))
         .route("/api/likes", get(list_likes).post(like_track).delete(unlike_track))
+        .route("/api/plays", post(record_play))
+        .route("/api/stats", get(get_stats))
         .route("/api/playlists", get(list_playlists).post(create_playlist))
         .route("/api/playlists/mine", get(list_my_playlists))
         .route("/api/playlists/:id", get(get_playlist).delete(delete_playlist))
@@ -617,6 +620,30 @@ async fn radio(State(state): State<AppState>, _user: AuthUser, Query(params): Qu
 }
 
 #[derive(Deserialize)]
+struct LyricsParams {
+    provider: String,
+    #[serde(rename = "ref")]
+    source_ref: String,
+}
+
+/// Lyrics for one track, when the provider has a lookup for it (see
+/// `MediaProvider::lyrics`). No lyrics found is a normal result (common —
+/// instrumentals, local files), not an error, so this always returns 200
+/// with `{"lyrics": null}` rather than a 404.
+async fn lyrics(State(state): State<AppState>, _user: AuthUser, Query(params): Query<LyricsParams>) -> Response {
+    let Some(provider) = state.provider(&params.provider) else {
+        return Json(serde_json::json!({ "lyrics": null })).into_response();
+    };
+    match provider.lyrics(&params.source_ref).await {
+        Ok(lyrics) => Json(serde_json::json!({ "lyrics": lyrics })).into_response(),
+        Err(err) => {
+            tracing::warn!(provider = params.provider, %err, "lyrics lookup failed");
+            Json(serde_json::json!({ "lyrics": null })).into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
 struct ArtistAlbumParams {
     provider: String,
     #[serde(rename = "ref")]
@@ -948,6 +975,123 @@ async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
     }
 }
 
+/// One row per play — an event log, not an upsert-counter, so "top
+/// artists/tracks" can be computed by grouping/counting rather than
+/// needing separate increment logic, and it supports future time-ranged
+/// questions ("plays this week") for free. Fire-and-forget from the
+/// client whenever the current track changes (see `recordServerPlay` in
+/// App.tsx) — same spirit as the client-local `useListeningHistory`,
+/// which this doesn't replace (Discover's "Your artists" row still reads
+/// from that).
+async fn record_play(State(state): State<AppState>, user: AuthUser, Json(track): Json<Track>) -> Response {
+    let Some(source) = track.sources.first() else {
+        return (StatusCode::BAD_REQUEST, "track has no source").into_response();
+    };
+    let result = sqlx::query(
+        "INSERT INTO play_history (id, user_id, provider_id, source_ref, title, artist_name, album_name, artwork_url) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(&user.id)
+    .bind(&source.provider_id)
+    .bind(&source.source_ref)
+    .bind(&track.title)
+    .bind(&track.artist_name)
+    .bind(&track.album_name)
+    .bind(&track.artwork_url)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not record play").into_response(),
+    }
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct TopArtist {
+    artist_name: String,
+    play_count: i64,
+}
+
+#[derive(sqlx::FromRow)]
+struct TopTrackRow {
+    provider_id: String,
+    source_ref: String,
+    title: String,
+    artist_name: Option<String>,
+    album_name: Option<String>,
+    artwork_url: Option<String>,
+    play_count: i64,
+}
+
+#[derive(Serialize)]
+struct TopTrack {
+    track: Track,
+    play_count: i64,
+}
+
+async fn get_stats(State(state): State<AppState>, user: AuthUser) -> Response {
+    let top_artists: Result<Vec<TopArtist>, _> = sqlx::query_as(
+        "SELECT artist_name, COUNT(*) AS play_count FROM play_history \
+         WHERE user_id = ? AND artist_name IS NOT NULL \
+         GROUP BY artist_name ORDER BY play_count DESC LIMIT 10",
+    )
+    .bind(&user.id)
+    .fetch_all(&state.db)
+    .await;
+
+    let top_tracks: Result<Vec<TopTrackRow>, _> = sqlx::query_as(
+        "SELECT provider_id, source_ref, title, artist_name, album_name, artwork_url, COUNT(*) AS play_count \
+         FROM play_history WHERE user_id = ? \
+         GROUP BY provider_id, source_ref ORDER BY play_count DESC LIMIT 10",
+    )
+    .bind(&user.id)
+    .fetch_all(&state.db)
+    .await;
+
+    let total_plays: Result<i64, _> = sqlx::query_scalar("SELECT COUNT(*) FROM play_history WHERE user_id = ?")
+        .bind(&user.id)
+        .fetch_one(&state.db)
+        .await;
+
+    match (top_artists, top_tracks, total_plays) {
+        (Ok(top_artists), Ok(top_tracks), Ok(total_plays)) => {
+            let top_tracks: Vec<TopTrack> = top_tracks
+                .into_iter()
+                .map(|r| TopTrack {
+                    play_count: r.play_count,
+                    track: Track {
+                        id: Uuid::new_v4(),
+                        title: r.title,
+                        duration_secs: None,
+                        track_number: None,
+                        sources: vec![TrackSource {
+                            is_local: r.provider_id == "local",
+                            provider_id: r.provider_id,
+                            source_ref: r.source_ref,
+                            bitrate_kbps: None,
+                            is_lossless: false,
+                        }],
+                        artwork_url: r.artwork_url,
+                        artist_name: r.artist_name,
+                        artist_ref: None,
+                        album_name: r.album_name,
+                        album_ref: None,
+                    },
+                })
+                .collect();
+            Json(serde_json::json!({
+                "top_artists": top_artists,
+                "top_tracks": top_tracks,
+                "total_plays": total_plays,
+            }))
+            .into_response()
+        }
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "could not load stats").into_response(),
+    }
+}
+
 /// User-created playlists (distinct from `/api/playlist`, which browses an
 /// external provider's own playlists). Every playlist on the server is
 /// visible to every logged-in user — there's no private/public flag, by
@@ -1140,18 +1284,18 @@ async fn delete_playlist(State(state): State<AppState>, user: AuthUser, Path(id)
     }
 }
 
+// Collaborative by default — any logged-in user can add/remove tracks on
+// any playlist (matches the already-open "everyone can see everyone's
+// playlists" visibility model), not just the owner. Only delete/rename
+// stay owner-only (see `delete_playlist`).
 async fn add_playlist_track(
     State(state): State<AppState>,
-    user: AuthUser,
+    _user: AuthUser,
     Path(id): Path<String>,
     Json(track): Json<Track>,
 ) -> Response {
-    match playlist_owner_id(&state.db, &id).await {
-        None => return (StatusCode::NOT_FOUND, "playlist not found").into_response(),
-        Some(owner_id) if owner_id != user.id => {
-            return (StatusCode::FORBIDDEN, "not your playlist").into_response();
-        }
-        Some(_) => {}
+    if playlist_owner_id(&state.db, &id).await.is_none() {
+        return (StatusCode::NOT_FOUND, "playlist not found").into_response();
     }
     let Some(source) = track.sources.first() else {
         return (StatusCode::BAD_REQUEST, "track has no source").into_response();
@@ -1206,25 +1350,20 @@ async fn add_playlist_track(
 
 async fn remove_playlist_track(
     State(state): State<AppState>,
-    user: AuthUser,
+    _user: AuthUser,
     Path((id, track_id)): Path<(String, String)>,
 ) -> Response {
-    match playlist_owner_id(&state.db, &id).await {
-        None => (StatusCode::NOT_FOUND, "playlist not found").into_response(),
-        Some(owner_id) if owner_id != user.id => {
-            (StatusCode::FORBIDDEN, "not your playlist").into_response()
-        }
-        Some(_) => {
-            match sqlx::query("DELETE FROM playlist_tracks WHERE id = ? AND playlist_id = ?")
-                .bind(&track_id)
-                .bind(&id)
-                .execute(&state.db)
-                .await
-            {
-                Ok(_) => StatusCode::NO_CONTENT.into_response(),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not remove track").into_response(),
-            }
-        }
+    if playlist_owner_id(&state.db, &id).await.is_none() {
+        return (StatusCode::NOT_FOUND, "playlist not found").into_response();
+    }
+    match sqlx::query("DELETE FROM playlist_tracks WHERE id = ? AND playlist_id = ?")
+        .bind(&track_id)
+        .bind(&id)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not remove track").into_response(),
     }
 }
 

@@ -8,7 +8,6 @@ import { useLikesContext } from "./LikesContext";
 import { Spinner } from "./Spinner";
 import { TrackOverflowMenu } from "./TrackOverflowMenu";
 import { TrackRow } from "./TrackRow";
-import type { Playlist } from "./usePlaylists";
 import type { ReleaseSummary, Track } from "./types";
 
 export interface DetailTarget {
@@ -32,7 +31,9 @@ interface Props {
   onShareAlbum: (album: DetailTarget, artistName?: string | null) => void | Promise<void>;
   onShareArtist: (artist: DetailTarget) => void | Promise<void>;
   onOpenDetail: (target: DetailTarget) => void;
-  playlists: Playlist[];
+  // Collaborative by default — every playlist on the server, not just the
+  // caller's own (see usePlaylists.ts's `addablePlaylists`).
+  playlists: { id: string; name: string }[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
   onCreatePlaylist: (name: string, initialTracks?: Track[]) => void;
   onStartJam: () => void;

@@ -41,6 +41,18 @@ export function PlaylistsView({
   const [otherTracks, setOtherTracks] = useState<Record<string, Track[]>>({});
   const otherPlaylists = allPlaylists.filter((pl) => pl.owner_id !== selfId);
 
+  // Collaborative playlists are editable by anyone, but `otherTracks` is
+  // this component's own cache (fetched lazily on expand) — removing a
+  // track needs to patch it locally too, or the stale list would stick
+  // around until the next expand/collapse re-fetch.
+  function removeOtherTrack(playlistId: string, trackId: string) {
+    setOtherTracks((prev) => ({
+      ...prev,
+      [playlistId]: (prev[playlistId] ?? []).filter((t) => t.id !== trackId),
+    }));
+    onRemoveTrack(playlistId, trackId);
+  }
+
   function toggleOther(pl: PlaylistSummary) {
     if (openOtherId === pl.id) {
       setOpenOtherId(null);
@@ -141,6 +153,9 @@ export function PlaylistsView({
                       {tracks.map((track) => (
                         <TrackRow key={track.id} track={track} onPlay={() => onPlay(tracks, track.id)}>
                           <LikeButton track={track} />
+                          <button onClick={() => removeOtherTrack(pl.id, track.id)} title="Remove">
+                            ✕
+                          </button>
                         </TrackRow>
                       ))}
                     </ul>

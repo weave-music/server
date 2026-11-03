@@ -1,7 +1,7 @@
 import type { ComponentType, SVGProps } from "react";
-import { AdminIcon, DiscoverIcon, PlaylistIcon, QueueIcon, SearchIcon } from "./icons";
+import { AdminIcon, DiscoverIcon, PlaylistIcon, QueueIcon, SearchIcon, StatsIcon } from "./icons";
 
-type Tab = "search" | "discover" | "queue" | "playlists" | "admin";
+type Tab = "search" | "discover" | "queue" | "playlists" | "stats" | "admin";
 
 interface Item {
   key: Tab;
@@ -14,6 +14,7 @@ const ITEMS: Item[] = [
   { key: "discover", label: "Discover", Icon: DiscoverIcon },
   { key: "queue", label: "Queue", Icon: QueueIcon },
   { key: "playlists", label: "Playlists", Icon: PlaylistIcon },
+  { key: "stats", label: "Stats", Icon: StatsIcon },
 ];
 
 interface Props {

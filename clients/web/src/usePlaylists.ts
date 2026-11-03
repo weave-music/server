@@ -131,5 +131,20 @@ export function usePlaylists(token: string | null) {
     [token, refresh],
   );
 
-  return { playlists, allPlaylists, createPlaylist, deletePlaylist, addTrackToPlaylist, removeTrackFromPlaylist };
+  // Playlists are collaborative by default (any logged-in user can add to
+  // any playlist, matching the already-open visibility model), so "add to
+  // playlist" menus should offer every playlist on the server, not just
+  // the caller's own — `allPlaylists` already includes everyone's,
+  // including the caller's, so this needs no merging.
+  const addablePlaylists = allPlaylists.map((p) => ({ id: p.id, name: p.name }));
+
+  return {
+    playlists,
+    allPlaylists,
+    addablePlaylists,
+    createPlaylist,
+    deletePlaylist,
+    addTrackToPlaylist,
+    removeTrackFromPlaylist,
+  };
 }

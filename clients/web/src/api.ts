@@ -137,6 +137,50 @@ export async function fetchRadio(token: string, track: Track): Promise<Track[]> 
   return data.results ?? [];
 }
 
+// Fire-and-forget — a play is logged whenever the current track changes
+// (see recordServerPlay in App.tsx), purely to back the stats page.
+export async function recordPlay(token: string, track: Track): Promise<void> {
+  const source = track.sources[0];
+  if (!source) return;
+  await fetch("/api/plays", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(track),
+  });
+}
+
+export interface TopArtist {
+  artist_name: string;
+  play_count: number;
+}
+
+export interface TopTrack {
+  track: Track;
+  play_count: number;
+}
+
+export interface Stats {
+  top_artists: TopArtist[];
+  top_tracks: TopTrack[];
+  total_plays: number;
+}
+
+export async function fetchStats(token: string): Promise<Stats> {
+  const res = await fetch("/api/stats", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return { top_artists: [], top_tracks: [], total_plays: 0 };
+  return res.json();
+}
+
+export async function fetchLyrics(token: string, track: Track): Promise<string | null> {
+  const source = track.sources[0];
+  if (!source) return null;
+  const params = new URLSearchParams({ provider: source.provider_id, ref: source.source_ref });
+  const res = await fetch(`/api/lyrics?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.lyrics ?? null;
+}
+
 export async function fetchArtistTracks(token: string, providerId: string, artistRef: string): Promise<Track[]> {
   const params = new URLSearchParams({ provider: providerId, ref: artistRef });
   const res = await fetch(`/api/artist?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });

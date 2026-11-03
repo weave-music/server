@@ -63,6 +63,11 @@ interface Props {
   onShare: (track: Track) => void | Promise<void>;
   onOpenDetail: (target: DetailTarget) => void;
   playlists: Playlist[];
+  // Every playlist on the server (collaborative by default), for the
+  // per-track "add to playlist" menu — distinct from `playlists` above,
+  // which is specifically the caller's own and used for matching search
+  // results against playlist names/contents.
+  addablePlaylists: { id: string; name: string }[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
   onStartJam: () => void;
   jamActive: boolean;
@@ -78,6 +83,7 @@ export function SearchView({
   onShare,
   onOpenDetail,
   playlists,
+  addablePlaylists,
   onAddToPlaylist,
   onStartJam,
   jamActive,
@@ -275,7 +281,7 @@ export function SearchView({
             <LikeButton track={track} />
             <TrackOverflowMenu
               track={track}
-              playlists={playlists}
+              playlists={addablePlaylists}
               onPlayNext={onPlayNext}
               onEnqueue={onEnqueue}
               onShare={onShare}

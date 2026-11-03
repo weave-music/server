@@ -229,3 +229,31 @@ export function JamIcon(props: SVGProps<SVGSVGElement>) {
     </Icon>
   );
 }
+
+export function MoonIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" />
+    </Icon>
+  );
+}
+
+export function LyricsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="16" y2="12" />
+      <line x1="4" y1="18" x2="12" y2="18" />
+    </Icon>
+  );
+}
+
+export function StatsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <line x1="5" y1="20" x2="5" y2="12" />
+      <line x1="12" y1="20" x2="12" y2="6" />
+      <line x1="19" y1="20" x2="19" y2="15" />
+    </Icon>
+  );
+}

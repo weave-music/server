@@ -997,6 +997,31 @@ form label {
   border-color: #1db954;
 }
 
+.stats-summary {
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+  flex-wrap: wrap;
+}
+
+.stats-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #1e1e1e;
+  border-radius: 10px;
+  padding: 0.75rem 1.25rem;
+  color: #999;
+  font-size: 0.8rem;
+  min-width: 90px;
+}
+
+.stats-summary-number {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #fff;
+}
+
 .entity-list {
   list-style: none;
   margin: 0;
@@ -1053,6 +1078,23 @@ form label {
   padding: 0.4rem 0.8rem;
   font-size: 0.8rem;
   color: #ccc;
+}
+
+.now-playing-lyrics {
+  max-width: 360px;
+  width: 100%;
+  margin: 1rem auto 0;
+  max-height: 220px;
+  overflow-y: auto;
+  text-align: center;
+}
+
+.now-playing-lyrics-text {
+  font-family: inherit;
+  white-space: pre-wrap;
+  color: #ccc;
+  font-size: 0.9rem;
+  margin: 0;
 }
 
 /* Lower than .player-bar/.app-nav-mobile so those stay visible on top while

@@ -457,6 +457,11 @@ struct BridgePlaylistTracksResponse {
     tracks: Vec<BridgeSong>,
 }
 
+#[derive(Deserialize)]
+struct BridgeLyricsResponse {
+    lyrics: Option<String>,
+}
+
 #[async_trait]
 impl MediaProvider for YtDlpProvider {
     fn id(&self) -> &str {
@@ -641,5 +646,10 @@ impl MediaProvider for YtDlpProvider {
             .take(limit)
             .map(|(video_id, s)| self.track_from_bridge_song(video_id, s))
             .collect())
+    }
+
+    async fn lyrics(&self, source_ref: &str) -> Result<Option<String>, ProviderError> {
+        let data: BridgeLyricsResponse = self.run_bridge(&["lyrics", source_ref]).await?;
+        Ok(data.lyrics)
     }
 }

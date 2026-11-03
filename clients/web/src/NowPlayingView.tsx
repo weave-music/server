@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { fetchLyrics } from "./api";
 import { Artwork } from "./Artwork";
 import type { DetailTarget } from "./DetailView";
 import { formatTime } from "./format";
@@ -5,6 +7,8 @@ import {
   ChevronDownIcon,
   DiscIcon,
   JamIcon,
+  LyricsIcon,
+  MoonIcon,
   PauseIcon,
   PlayIcon,
   QueueIcon,
@@ -16,20 +20,24 @@ import {
   UserIcon,
 } from "./icons";
 import { LikeButton } from "./LikeButton";
+import { Spinner } from "./Spinner";
 import { TrackOverflowMenu } from "./TrackOverflowMenu";
 import { repeatModeToNumber, type RemoteCommandName } from "./jamApi";
-import type { Playlist } from "./usePlaylists";
 import type { Track } from "./types";
 import { nextRepeatMode, type RepeatMode, type useQueue } from "./useQueue";
+import type { useSleepTimer } from "./useSleepTimer";
 
 interface Props {
+  token: string;
   queueApi: ReturnType<typeof useQueue>;
   onClose: () => void;
   onOpenQueue: () => void;
   onRadio: (track: Track) => void;
   onShare: (track: Track) => void | Promise<void>;
   onOpenDetail: (target: DetailTarget) => void;
-  playlists: Playlist[];
+  // Every playlist on the server (collaborative by default), not just the
+  // caller's own (see usePlaylists.ts's `addablePlaylists`).
+  playlists: { id: string; name: string }[];
   onAddToPlaylist: (playlistId: string, track: Track) => void;
   // Plain "go to the jam" — used by the active-jam banner below, which only
   // ever shows once a jam already exists.
@@ -48,9 +56,11 @@ interface Props {
   remoteIsPlaying?: boolean;
   remoteShuffle?: boolean;
   remoteRepeat?: RepeatMode;
+  sleepTimer: ReturnType<typeof useSleepTimer>;
 }
 
 export function NowPlayingView({
+  token,
   queueApi,
   onClose,
   onOpenQueue,
@@ -69,7 +79,9 @@ export function NowPlayingView({
   remoteIsPlaying,
   remoteShuffle,
   remoteRepeat,
+  sleepTimer,
 }: Props) {
+  const [sleepMenuOpen, setSleepMenuOpen] = useState(false);
   const {
     currentTrack,
     isPlaying: localIsPlaying,
@@ -89,6 +101,17 @@ export function NowPlayingView({
   const isPlaying = remote ? !!remoteIsPlaying : localIsPlaying;
   const shuffle = remote ? !!remoteShuffle : localShuffle;
   const repeat = remote ? remoteRepeat ?? "off" : localRepeat;
+
+  const [lyricsOpen, setLyricsOpen] = useState(false);
+  // undefined = not fetched yet, null = fetched but none found.
+  const [lyrics, setLyrics] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    setLyrics(undefined);
+  }, [currentTrack?.id]);
+  useEffect(() => {
+    if (!lyricsOpen || !currentTrack || lyrics !== undefined) return;
+    fetchLyrics(token, currentTrack).then(setLyrics);
+  }, [lyricsOpen, currentTrack, lyrics, token]);
 
   if (!currentTrack) return null;
   const providerId = currentTrack.sources[0]?.provider_id;
@@ -158,6 +181,20 @@ export function NowPlayingView({
           )}
         </div>
 
+      {lyricsOpen && (
+        <div className="now-playing-lyrics">
+          {lyrics === undefined ? (
+            <p className="detail-view-note">
+              <Spinner /> Loading lyrics…
+            </p>
+          ) : lyrics === null ? (
+            <p className="detail-view-note">No lyrics found for this track.</p>
+          ) : (
+            <pre className="now-playing-lyrics-text">{lyrics}</pre>
+          )}
+        </div>
+      )}
+
       {remote ? (
         <div className="now-playing-seek now-playing-remote-volume">
           <span>Volume</span>
@@ -224,7 +261,55 @@ export function NowPlayingView({
         <button onClick={() => onShare(currentTrack)}>
           <ShareIcon /> Share
         </button>
+        <button onClick={() => setLyricsOpen((open) => !open)}>
+          <LyricsIcon /> Lyrics
+        </button>
+        <button onClick={() => setSleepMenuOpen((open) => !open)}>
+          <MoonIcon />{" "}
+          {sleepTimer.mode?.kind === "duration"
+            ? `${sleepTimer.minutesLeft}m`
+            : sleepTimer.mode?.kind === "end-of-track"
+              ? "End of track"
+              : "Sleep timer"}
+        </button>
       </div>
+
+      {sleepMenuOpen && (
+        <>
+          <div className="menu-backdrop" onClick={() => setSleepMenuOpen(false)} />
+          <div className="add-to-playlist-menu">
+            {[15, 30, 45, 60].map((minutes) => (
+              <button
+                key={minutes}
+                onClick={() => {
+                  sleepTimer.setDurationTimer(minutes);
+                  setSleepMenuOpen(false);
+                }}
+              >
+                {minutes} minutes
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                sleepTimer.setEndOfTrackTimer();
+                setSleepMenuOpen(false);
+              }}
+            >
+              End of current track
+            </button>
+            {sleepTimer.mode && (
+              <button
+                onClick={() => {
+                  sleepTimer.cancelTimer();
+                  setSleepMenuOpen(false);
+                }}
+              >
+                Turn off
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
