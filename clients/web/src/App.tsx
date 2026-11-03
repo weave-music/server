@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import type { DetailTarget } from "./DetailView";
 import { DiscoverView } from "./DiscoverView";
 import { fetchArtistReleases, fetchArtistTracks, fetchRadio, getCacheTtlHours, recordPlay as recordServerPlay } from "./api";
-import { JamIcon } from "./icons";
+import { AdminIcon, JamIcon, UserIcon } from "./icons";
 import { dedupeMembers } from "./jamApi";
 import { LikesProvider } from "./LikesContext";
 import { NavTabs } from "./NavTabs";
@@ -228,11 +228,21 @@ export default function App() {
         <header className="app-header">
           <h1>Weave</h1>
           <nav className="app-nav-desktop">
-            <NavTabs tab={tab} setTab={setTab} queueCount={queueApi.queue.length} isAdmin={me.is_admin} />
+            <NavTabs tab={tab} setTab={setTab} queueCount={queueApi.queue.length} />
           </nav>
           <button className="app-jam-button" onClick={openJamPanel} title="Weave Jam">
             <JamIcon /> {jamApi.jam ? "Jam" : "Start a Jam"}
           </button>
+          <div className="app-header-account">
+            <button className={tab === "profile" ? "active" : ""} onClick={() => setTab("profile")} title="Profile">
+              <UserIcon />
+            </button>
+            {me.is_admin && (
+              <button className={tab === "admin" ? "active" : ""} onClick={() => setTab("admin")} title="Admin">
+                <AdminIcon />
+              </button>
+            )}
+          </div>
         </header>
 
         <main>
@@ -295,7 +305,7 @@ export default function App() {
         />
 
         <nav className="app-nav-mobile">
-          <NavTabs tab={tab} setTab={setTab} queueCount={queueApi.queue.length} isAdmin={me.is_admin} />
+          <NavTabs tab={tab} setTab={setTab} queueCount={queueApi.queue.length} />
         </nav>
 
         {nowPlayingOpen && (

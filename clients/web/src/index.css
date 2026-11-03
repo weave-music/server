@@ -1854,6 +1854,39 @@ form label {
   margin: 0;
 }
 
+/* Account-level actions (Profile/Admin) — kept apart from NavTabs's content
+   tabs so they always live in the top bar, including on mobile, instead of
+   crowding the bottom tab bar. */
+.app-header-account {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.app-header-account button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+}
+
+.app-header-account button svg {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+}
+
+.app-header-account button:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-2);
+}
+
+.app-header-account button.active {
+  color: var(--accent);
+}
+
 /* Shares the full-screen overlay treatment used by .now-playing/.detail-view. */
 /* z-index below .player-bar (18), same as .detail-view — so the player
    bar (and, on mobile, the bottom tab nav) stays visible/usable while the

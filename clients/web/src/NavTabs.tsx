@@ -1,5 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
-import { AdminIcon, DiscoverIcon, PlaylistIcon, QueueIcon, SearchIcon, UserIcon } from "./icons";
+import { DiscoverIcon, PlaylistIcon, QueueIcon, SearchIcon } from "./icons";
 
 type Tab = "search" | "discover" | "queue" | "playlists" | "profile" | "admin";
 
@@ -14,24 +14,24 @@ const ITEMS: Item[] = [
   { key: "discover", label: "Discover", Icon: DiscoverIcon },
   { key: "queue", label: "Queue", Icon: QueueIcon },
   { key: "playlists", label: "Playlists", Icon: PlaylistIcon },
-  { key: "profile", label: "Profile", Icon: UserIcon },
 ];
 
 interface Props {
   tab: Tab;
   setTab: (tab: Tab) => void;
   queueCount: number;
-  isAdmin: boolean;
 }
 
 // Rendered twice (desktop header nav, mobile bottom tab bar) from one
 // definition — CSS decides which icons/labels actually show in each spot.
-export function NavTabs({ tab, setTab, queueCount, isAdmin }: Props) {
-  const items = isAdmin ? [...ITEMS, { key: "admin" as Tab, label: "Admin", Icon: AdminIcon }] : ITEMS;
-
+// Profile/Admin live in the header's own icon-button cluster instead (see
+// App.tsx), not in this shared list — they're account-level, not content
+// tabs, and stay in the top bar on mobile rather than crowding the bottom
+// bar.
+export function NavTabs({ tab, setTab, queueCount }: Props) {
   return (
     <>
-      {items.map((item) => (
+      {ITEMS.map((item) => (
         <button key={item.key} className={tab === item.key ? "active" : ""} onClick={() => setTab(item.key)}>
           <item.Icon className="nav-icon" />
           <span className="nav-label">
