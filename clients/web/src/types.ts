@@ -3,6 +3,9 @@ export interface TrackSource {
   source_ref: string;
   is_local: boolean;
   is_lossless: boolean;
+  // Only ever present on tracks from fetchLikes, probed via ffprobe once
+  // a file is actually cached — null/absent elsewhere.
+  bitrate_kbps?: number | null;
 }
 
 export interface Track {
@@ -20,9 +23,9 @@ export interface Track {
   // (today: local files via the containing folder, or yt-dlp tracks that
   // came from album_tracks/a YouTube Music release).
   album_ref: string | null;
-  // 'requested' | 'upgraded' | 'no_match' — only ever present on tracks
-  // from fetchLikes (the server joins it from track_upgrades there).
-  upgrade_status?: string | null;
+  // 'streaming' | 'downloaded' | 'upgrading' | 'upgraded' — only ever
+  // present on tracks from fetchLikes.
+  download_status?: string | null;
 }
 
 // A lightweight album/single card on an artist page — not a full Track list,

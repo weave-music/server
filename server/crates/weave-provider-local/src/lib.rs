@@ -83,7 +83,7 @@ impl LocalFilesystemProvider {
             artist_ref: None,
             album_name,
             album_ref,
-            upgrade_status: None,
+            download_status: None,
         }
     }
 }

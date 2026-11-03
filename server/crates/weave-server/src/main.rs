@@ -817,6 +817,41 @@ fn safe_cache_stem(provider_id: &str, source_ref: &str) -> String {
     format!("{provider_id}_{safe_ref}")
 }
 
+/// Probes a downloaded/cached audio file's actual bitrate and whether its
+/// codec is lossless, via ffprobe (already present alongside yt-dlp's
+/// ffmpeg dependency). yt-dlp's "bestaudio" pick varies in bitrate per
+/// video, and a Lidarr-sourced file's quality is whatever the grabbed
+/// release actually is — neither is knowable without asking the file
+/// itself. `None` on any failure; quality display is a nice-to-have, not
+/// something worth failing a download/upgrade over.
+async fn probe_quality(path: &FsPath) -> Option<(Option<i64>, bool)> {
+    let output = tokio::process::Command::new("ffprobe")
+        .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams"])
+        .arg(path)
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let data: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let bitrate_kbps = data
+        .get("format")
+        .and_then(|f| f.get("bit_rate"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .map(|bps| bps / 1000);
+    let is_lossless = data
+        .get("streams")
+        .and_then(|s| s.as_array())
+        .and_then(|streams| streams.iter().find(|s| s.get("codec_type").and_then(|v| v.as_str()) == Some("audio")))
+        .and_then(|s| s.get("codec_name"))
+        .and_then(|v| v.as_str())
+        .map(|codec| matches!(codec, "flac" | "alac") || codec.starts_with("pcm_"))
+        .unwrap_or(false);
+    Some((bitrate_kbps, is_lossless))
+}
+
 /// Shells out to yt-dlp to pull down a liked track's audio so future plays
 /// can be served from disk instead of re-streaming from the provider. Fire-
 /// and-forget: runs on a spawned task kicked off from `like_track`, so a like
@@ -857,18 +892,22 @@ async fn download_track_in_background(
 
     match output {
         Ok(out) if out.status.success() && dest.exists() => {
+            let (bitrate_kbps, is_lossless) = probe_quality(&dest).await.unwrap_or((None, false));
             let insert = sqlx::query(
-                "INSERT OR REPLACE INTO cached_tracks (provider_id, source_ref, file_path) VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO cached_tracks (provider_id, source_ref, file_path, bitrate_kbps, is_lossless) \
+                 VALUES (?, ?, ?, ?, ?)",
             )
             .bind(&provider_id)
             .bind(&source_ref)
             .bind(dest.to_string_lossy().as_ref())
+            .bind(bitrate_kbps)
+            .bind(is_lossless)
             .execute(&db)
             .await;
             if let Err(err) = insert {
                 tracing::warn!(provider_id, source_ref, %err, "failed to record cached track");
             } else {
-                tracing::info!(provider_id, source_ref, "cached track downloaded");
+                tracing::info!(provider_id, source_ref, ?bitrate_kbps, "cached track downloaded");
             }
         }
         Ok(out) => tracing::warn!(
@@ -1129,12 +1168,18 @@ async fn sweep_track_upgrades(state: &AppState) {
         let Some(matched) = results.iter().find(|t| normalize_title(&t.title) == normalized_title) else { continue };
         let Some(source) = matched.sources.first() else { continue };
 
-        let _ = sqlx::query("INSERT OR REPLACE INTO cached_tracks (provider_id, source_ref, file_path) VALUES (?, ?, ?)")
-            .bind(&provider_id)
-            .bind(&source_ref)
-            .bind(&source.source_ref)
-            .execute(&state.db)
-            .await;
+        let (bitrate_kbps, is_lossless) = probe_quality(FsPath::new(&source.source_ref)).await.unwrap_or((None, false));
+        let _ = sqlx::query(
+            "INSERT OR REPLACE INTO cached_tracks (provider_id, source_ref, file_path, bitrate_kbps, is_lossless) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&provider_id)
+        .bind(&source_ref)
+        .bind(&source.source_ref)
+        .bind(bitrate_kbps)
+        .bind(is_lossless)
+        .execute(&state.db)
+        .await;
         let _ = sqlx::query("UPDATE track_upgrades SET status = 'upgraded', updated_at = datetime('now') WHERE provider_id = ? AND source_ref = ?")
             .bind(&provider_id)
             .bind(&source_ref)
@@ -1172,15 +1217,34 @@ struct LikedRow {
     album_name: Option<String>,
     artwork_url: Option<String>,
     duration_secs: Option<i64>,
-    upgrade_status: Option<String>,
+    download_status: Option<String>,
+    cached: bool,
+    bitrate_kbps: Option<i64>,
+    is_lossless: bool,
+}
+
+/// "streaming" (served live from the provider, nothing local yet),
+/// "downloaded" (yt-dlp's own background download landed), "upgrading"
+/// (Lidarr album request in flight), or "upgraded" (Lidarr's download
+/// landed and `stream()` is now serving that file instead) — this is a
+/// read model over `cached_tracks`/`track_upgrades`, not a stored value.
+fn download_status(cached: bool, download_status: Option<&str>) -> &'static str {
+    match download_status {
+        Some("upgraded") => "upgraded",
+        Some("requested") => "upgrading",
+        _ if cached => "downloaded",
+        _ => "streaming",
+    }
 }
 
 async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
     let rows: Result<Vec<LikedRow>, _> = sqlx::query_as(
         "SELECT l.provider_id, l.source_ref, l.title, l.artist_name, l.album_name, l.artwork_url, l.duration_secs, \
-                u.status AS upgrade_status \
+                u.status AS download_status, \
+                (c.file_path IS NOT NULL) AS cached, c.bitrate_kbps, COALESCE(c.is_lossless, 0) AS is_lossless \
          FROM liked_tracks l \
          LEFT JOIN track_upgrades u ON u.provider_id = l.provider_id AND u.source_ref = l.source_ref \
+         LEFT JOIN cached_tracks c ON c.provider_id = l.provider_id AND c.source_ref = l.source_ref \
          WHERE l.user_id = ? ORDER BY l.liked_at DESC",
     )
     .bind(&user.id)
@@ -1191,24 +1255,27 @@ async fn list_likes(State(state): State<AppState>, user: AuthUser) -> Response {
         Ok(rows) => {
             let tracks: Vec<Track> = rows
                 .into_iter()
-                .map(|r| Track {
-                    id: Uuid::new_v4(),
-                    title: r.title,
-                    duration_secs: r.duration_secs.map(|d| d as u32),
-                    track_number: None,
-                    sources: vec![TrackSource {
-                        is_local: r.provider_id == "local",
-                        provider_id: r.provider_id,
-                        source_ref: r.source_ref,
-                        bitrate_kbps: None,
-                        is_lossless: false,
-                    }],
-                    artwork_url: r.artwork_url,
-                    artist_name: r.artist_name,
-                    artist_ref: None,
-                    album_name: r.album_name,
-                    album_ref: None,
-                    upgrade_status: r.upgrade_status,
+                .map(|r| {
+                    let status = download_status(r.cached, r.download_status.as_deref());
+                    Track {
+                        id: Uuid::new_v4(),
+                        title: r.title,
+                        duration_secs: r.duration_secs.map(|d| d as u32),
+                        track_number: None,
+                        sources: vec![TrackSource {
+                            is_local: r.cached || r.provider_id == "local",
+                            provider_id: r.provider_id,
+                            source_ref: r.source_ref,
+                            bitrate_kbps: r.bitrate_kbps.map(|b| b as u32),
+                            is_lossless: r.is_lossless,
+                        }],
+                        artwork_url: r.artwork_url,
+                        artist_name: r.artist_name,
+                        artist_ref: None,
+                        album_name: r.album_name,
+                        album_ref: None,
+                        download_status: Some(status.to_string()),
+                    }
                 })
                 .collect();
             Json(serde_json::json!({ "results": tracks })).into_response()
@@ -1330,7 +1397,7 @@ async fn get_stats(State(state): State<AppState>, user: AuthUser) -> Response {
                         artist_ref: None,
                         album_name: r.album_name,
                         album_ref: None,
-                        upgrade_status: None,
+                        download_status: None,
                     },
                 })
                 .collect();
@@ -1453,7 +1520,7 @@ fn playlist_track_to_track(r: PlaylistTrackRow) -> Track {
         artist_ref: r.artist_ref,
         album_name: r.album_name,
         album_ref: r.album_ref,
-        upgrade_status: None,
+        download_status: None,
     }
 }
 
@@ -1746,7 +1813,7 @@ async fn get_playback(State(state): State<AppState>, user: AuthUser) -> Response
         artist_ref: None,
         album_name: row.album_name,
         album_ref: None,
-        upgrade_status: None,
+        download_status: None,
     };
 
     Json(serde_json::json!({

@@ -484,6 +484,12 @@ button:disabled {
   color: var(--accent);
 }
 
+.tag-quality {
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
 .playlist-list {
   list-style: none;
   margin: 0;

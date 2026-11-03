@@ -113,7 +113,7 @@ export function LibraryView({
                   key={track.id}
                   track={track}
                   onPlay={() => onPlay(visibleLikedTracks, track.id)}
-                  upgradeStatus={track.upgrade_status}
+                  downloadStatus={track.download_status}
                 >
                   <LikeButton track={track} />
                 </TrackRow>
