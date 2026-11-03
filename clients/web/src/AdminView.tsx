@@ -3,6 +3,7 @@ import {
   createUser,
   deleteUser,
   getCacheTtlHours,
+  getLastfmSettings,
   getLidarrQualityProfiles,
   getLidarrRootFolders,
   getLidarrSettings,
@@ -11,6 +12,7 @@ import {
   getYtdlpEnabled,
   listUsers,
   setCacheTtlHours,
+  setLastfmSettings,
   setLidarrSettings,
   setOidcSettings,
   setRegistrationAllowed,
@@ -25,7 +27,7 @@ interface Props {
   selfId: string;
 }
 
-type AdminTab = "general" | "users" | "sso" | "lidarr";
+type AdminTab = "general" | "users" | "sso" | "lidarr" | "lastfm";
 
 export function AdminView({ token, selfId }: Props) {
   const [tab, setTab] = useState<AdminTab>("general");
@@ -56,6 +58,11 @@ export function AdminView({ token, selfId }: Props) {
   const [oidcHasClientSecret, setOidcHasClientSecret] = useState(false);
   const [oidcStatus, setOidcStatus] = useState<string | null>(null);
 
+  const [lastfmApiKey, setLastfmApiKey] = useState("");
+  const [lastfmApiSecret, setLastfmApiSecret] = useState("");
+  const [lastfmHasApiSecret, setLastfmHasApiSecret] = useState(false);
+  const [lastfmStatus, setLastfmStatus] = useState<string | null>(null);
+
   async function refresh() {
     try {
       setUsers(await listUsers(token));
@@ -79,6 +86,10 @@ export function AdminView({ token, selfId }: Props) {
       setOidcIssuer(s.issuer);
       setOidcClientId(s.client_id);
       setOidcHasClientSecret(s.has_client_secret);
+    });
+    getLastfmSettings(token).then((s) => {
+      setLastfmApiKey(s.api_key);
+      setLastfmHasApiSecret(s.has_api_secret);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -130,6 +141,19 @@ export function AdminView({ token, selfId }: Props) {
       setOidcStatus("Saved.");
     } catch (err) {
       setOidcStatus(err instanceof Error ? err.message : "Could not save SSO settings.");
+    }
+  }
+
+  async function saveLastfmSettings(e: React.FormEvent) {
+    e.preventDefault();
+    setLastfmStatus(null);
+    try {
+      await setLastfmSettings(token, { api_key: lastfmApiKey, api_secret: lastfmApiSecret || undefined });
+      setLastfmApiSecret("");
+      setLastfmHasApiSecret(lastfmHasApiSecret || !!lastfmApiSecret);
+      setLastfmStatus("Saved.");
+    } catch (err) {
+      setLastfmStatus(err instanceof Error ? err.message : "Could not save Last.fm settings.");
     }
   }
 
@@ -204,6 +228,9 @@ export function AdminView({ token, selfId }: Props) {
         </button>
         <button className={tab === "lidarr" ? "active" : ""} onClick={() => setTab("lidarr")}>
           Lidarr
+        </button>
+        <button className={tab === "lastfm" ? "active" : ""} onClick={() => setTab("lastfm")}>
+          Last.fm
         </button>
       </div>
 
@@ -322,6 +349,27 @@ export function AdminView({ token, selfId }: Props) {
             )}
           </div>
           {lidarrStatus && <p className="jam-room-empty">{lidarrStatus}</p>}
+        </>
+      )}
+
+      {tab === "lastfm" && (
+        <>
+          <h2>Last.fm</h2>
+          <p className="jam-room-empty">
+            Lets users link their own Last.fm account from their profile to scrobble plays. Create an API account at
+            last.fm/api/account/create to get a key/secret pair.
+          </p>
+          <form onSubmit={saveLastfmSettings} className="admin-settings-form">
+            <input value={lastfmApiKey} onChange={(e) => setLastfmApiKey(e.target.value)} placeholder="API key" />
+            <input
+              type="password"
+              value={lastfmApiSecret}
+              onChange={(e) => setLastfmApiSecret(e.target.value)}
+              placeholder={lastfmHasApiSecret ? "API secret (set — leave blank to keep)" : "API secret"}
+            />
+            <button type="submit">Save connection</button>
+          </form>
+          {lastfmStatus && <p className="jam-room-empty">{lastfmStatus}</p>}
         </>
       )}
 

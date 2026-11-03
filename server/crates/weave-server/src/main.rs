@@ -1,4 +1,5 @@
 mod auth;
+mod lastfm;
 mod lidarr;
 mod musicbrainz;
 mod oidc;
@@ -166,6 +167,12 @@ async fn main() {
         .route("/api/lidarr/status", get(lidarr::lidarr_status))
         .route("/api/lidarr/search", get(lidarr::lidarr_search))
         .route("/api/lidarr/request", post(lidarr::lidarr_request_artist))
+        .route("/api/admin/lastfm-settings", get(lastfm::get_lastfm_settings).put(lastfm::put_lastfm_settings))
+        .route("/api/lastfm/status", get(lastfm::lastfm_status))
+        .route("/api/lastfm/link-status", get(lastfm::lastfm_link_status))
+        .route("/api/lastfm/auth-url", get(lastfm::lastfm_auth_url))
+        .route("/api/lastfm/callback", get(lastfm::lastfm_callback))
+        .route("/api/lastfm/unlink", post(lastfm::lastfm_unlink))
         .route("/api/settings/registration", get(get_registration_setting).put(set_registration_setting))
         .route("/api/settings/ytdlp", get(get_ytdlp_setting).put(set_ytdlp_setting))
         .route("/api/settings/cache", get(get_cache_setting).put(set_cache_setting))
@@ -1238,7 +1245,17 @@ async fn record_play(State(state): State<AppState>, user: AuthUser, Json(track):
     .await;
 
     match result {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            tokio::spawn(lastfm::scrobble(
+                state.db.clone(),
+                state.http.clone(),
+                user.id.clone(),
+                track.title.clone(),
+                track.artist_name.clone(),
+                track.album_name.clone(),
+            ));
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "could not record play").into_response(),
     }
 }

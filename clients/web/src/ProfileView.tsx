@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { fetchLikes, fetchStats, type Stats } from "./api";
+import {
+  fetchLikes,
+  fetchStats,
+  getLastfmAuthUrl,
+  getLastfmEnabled,
+  getLastfmLinkStatus,
+  unlinkLastfm,
+  type Stats,
+} from "./api";
 import { EmptyState } from "./EmptyState";
 import { EntityCard } from "./EntityCard";
 import { StatsIcon } from "./icons";
@@ -23,11 +31,25 @@ interface Props {
 export function ProfileView({ token, me, playlistCount, onPlay, onLogout }: Props) {
   const [likedCount, setLikedCount] = useState<number | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [lastfmEnabled, setLastfmEnabled] = useState(false);
+  const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
 
   useEffect(() => {
     fetchLikes(token).then((tracks) => setLikedCount(tracks.length));
     fetchStats(token).then(setStats);
+    getLastfmEnabled(token).then(setLastfmEnabled);
+    getLastfmLinkStatus(token).then((s) => setLastfmUsername(s.username));
   }, [token]);
+
+  async function connectLastfm() {
+    const url = await getLastfmAuthUrl(token);
+    window.location.href = url;
+  }
+
+  async function disconnectLastfm() {
+    await unlinkLastfm(token);
+    setLastfmUsername(null);
+  }
 
   const topTracks = stats?.top_tracks.map((t) => t.track) ?? [];
 
@@ -41,6 +63,19 @@ export function ProfileView({ token, me, playlistCount, onPlay, onLogout }: Prop
         </div>
         <button onClick={onLogout}>Log out</button>
       </div>
+
+      {lastfmEnabled && (
+        <div className="profile-connections">
+          {lastfmUsername ? (
+            <>
+              <span className="jam-room-empty">Last.fm connected as {lastfmUsername}</span>
+              <button onClick={disconnectLastfm}>Disconnect Last.fm</button>
+            </>
+          ) : (
+            <button onClick={connectLastfm}>Connect Last.fm</button>
+          )}
+        </div>
+      )}
 
       <div className="stats-summary">
         <div className="stats-summary-item">

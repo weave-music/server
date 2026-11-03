@@ -489,3 +489,52 @@ export async function deleteUser(token: string, id: string): Promise<void> {
   });
   if (!res.ok) throw new Error("Could not delete user.");
 }
+
+export interface LastfmSettings {
+  api_key: string;
+  has_api_secret: boolean;
+}
+
+export async function getLastfmSettings(token: string): Promise<LastfmSettings> {
+  const res = await fetch("/api/admin/lastfm-settings", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error("Could not load Last.fm settings.");
+  return res.json();
+}
+
+export async function setLastfmSettings(token: string, settings: { api_key: string; api_secret?: string }): Promise<void> {
+  const res = await fetch("/api/admin/lastfm-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error("Could not save Last.fm settings.");
+}
+
+export async function getLastfmEnabled(token: string): Promise<boolean> {
+  const res = await fetch("/api/lastfm/status", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return false;
+  const data = await res.json();
+  return !!data.enabled;
+}
+
+export interface LastfmLinkStatus {
+  linked: boolean;
+  username: string | null;
+}
+
+export async function getLastfmLinkStatus(token: string): Promise<LastfmLinkStatus> {
+  const res = await fetch("/api/lastfm/link-status", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return { linked: false, username: null };
+  return res.json();
+}
+
+export async function getLastfmAuthUrl(token: string): Promise<string> {
+  const res = await fetch("/api/lastfm/auth-url", { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error("Could not start Last.fm link.");
+  const data = await res.json();
+  return data.url;
+}
+
+export async function unlinkLastfm(token: string): Promise<void> {
+  await fetch("/api/lastfm/unlink", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+}
