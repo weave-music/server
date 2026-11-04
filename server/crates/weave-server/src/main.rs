@@ -109,7 +109,7 @@ async fn main() {
     sqlx::migrate!().run(&db).await.expect("database migrations failed");
 
     let music_dir = std::env::var("WEAVE_LIBRARY_PATH").unwrap_or_else(|_| "/music".to_string());
-    let local_provider = Arc::new(LocalFilesystemProvider::new("local", music_dir));
+    let local_provider = Arc::new(LocalFilesystemProvider::new("local", music_dir, db.clone()));
     let ytdlp_provider = Arc::new(YtDlpProvider::new("ytdlp", db.clone()));
 
     let cache_dir = PathBuf::from(std::env::var("WEAVE_CACHE_PATH").unwrap_or_else(|_| "/config/cache".to_string()));
@@ -119,7 +119,7 @@ async fn main() {
     let (jam_tx, _) = broadcast::channel(32);
     let jam_live: Arc<Mutex<HashMap<String, JamLive>>> = Arc::new(Mutex::new(HashMap::new()));
     let state = AppState {
-        providers: vec![local_provider, ytdlp_provider],
+        providers: vec![local_provider.clone(), ytdlp_provider],
         db,
         cache_dir,
         playback_tx,
@@ -147,6 +147,17 @@ async fn main() {
             loop {
                 interval.tick().await;
                 sweep_track_upgrades(&sweep_state).await;
+            }
+        });
+    }
+
+    {
+        let local_provider = local_provider.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(900));
+            loop {
+                interval.tick().await;
+                local_provider.refresh_tag_cache().await;
             }
         });
     }
@@ -1165,7 +1176,22 @@ async fn sweep_track_upgrades(state: &AppState) {
         };
         let Ok(results) = local.search(&SearchQuery { text: query_text, limit: 5 }).await else { continue };
         let normalized_title = normalize_title(&title);
-        let Some(matched) = results.iter().find(|t| normalize_title(&t.title) == normalized_title) else { continue };
+        let normalized_artist = artist_name.as_deref().map(normalize_title);
+        // Requires both title and artist to match when the local provider's
+        // tag cache has artist data for the candidate — falls back to
+        // title-only when it doesn't (e.g. not scanned yet), so this is
+        // strictly more precise, never stricter in a way that could
+        // regress an already-working case.
+        let matched = results.iter().find(|t| {
+            if normalize_title(&t.title) != normalized_title {
+                return false;
+            }
+            match (&normalized_artist, t.artist_name.as_deref()) {
+                (Some(want), Some(got)) => normalize_title(got) == *want,
+                _ => true,
+            }
+        });
+        let Some(matched) = matched else { continue };
         let Some(source) = matched.sources.first() else { continue };
 
         let (bitrate_kbps, is_lossless) = probe_quality(FsPath::new(&source.source_ref)).await.unwrap_or((None, false));

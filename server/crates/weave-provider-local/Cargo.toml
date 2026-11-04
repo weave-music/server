@@ -9,3 +9,6 @@ async-trait = "0.1"
 walkdir = "2"
 uuid = { version = "1", features = ["v4"] }
 rand = "0.8"
+lofty = "0.21"
+tokio = { version = "1", features = ["rt", "sync"] }
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
