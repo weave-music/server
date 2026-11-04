@@ -14,7 +14,7 @@ use axum::{
     body::Body,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{Path, Query, Request, State},
-    http::StatusCode,
+    http::{header::CONTENT_TYPE, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -194,6 +194,7 @@ async fn main() {
         .route("/api/search/playlists", get(search_playlists))
         .route("/api/featured", get(featured))
         .route("/api/library/local", get(library_local))
+        .route("/api/library/local-artwork", get(library_local_artwork))
         .route("/api/radio", get(radio))
         .route("/api/lyrics", get(lyrics))
         .route("/api/artist", get(artist_tracks))
@@ -657,6 +658,32 @@ async fn library_local(
             tracing::warn!(%err, "local library browse failed");
             (StatusCode::INTERNAL_SERVER_ERROR, "could not browse local library").into_response()
         }
+    }
+}
+
+#[derive(Deserialize)]
+struct LocalArtworkParams {
+    #[serde(rename = "ref")]
+    path_ref: String,
+}
+
+/// Deliberately unauthenticated, unlike the rest of the API: every other
+/// `artwork_url` (e.g. ytdlp's YouTube thumbnail URLs) is already a plain
+/// image URL with no auth from the frontend's point of view, and
+/// `Artwork.tsx` has no `token` prop threaded through any of its call
+/// sites. The only thing this leaks without auth is embedded album-art
+/// bytes, not sensitive data, on a self-hosted single-household app.
+async fn library_local_artwork(State(state): State<AppState>, Query(params): Query<LocalArtworkParams>) -> Response {
+    let row: Option<(Vec<u8>, String)> =
+        sqlx::query_as("SELECT artwork, artwork_mime FROM local_tag_cache WHERE path = ? AND artwork IS NOT NULL")
+            .bind(&params.path_ref)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+    match row {
+        Some((bytes, mime)) => ([(CONTENT_TYPE, mime)], bytes).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 

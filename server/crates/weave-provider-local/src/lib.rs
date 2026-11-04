@@ -25,6 +25,7 @@ struct CachedTags {
     track_number: Option<u32>,
     duration_secs: Option<u32>,
     is_lossless: bool,
+    has_artwork: bool,
 }
 
 pub struct LocalFilesystemProvider {
@@ -75,15 +76,16 @@ impl LocalFilesystemProvider {
     /// match against the whole library's tags, not just a pre-filtered
     /// subset) simple.
     async fn all_cached_tags(&self) -> HashMap<PathBuf, CachedTags> {
-        let rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<i64>, Option<i64>, bool)> = sqlx::query_as(
-            "SELECT path, title, artist_name, album_name, track_number, duration_secs, is_lossless FROM local_tag_cache",
+        let rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<i64>, Option<i64>, bool, bool)> = sqlx::query_as(
+            "SELECT path, title, artist_name, album_name, track_number, duration_secs, is_lossless, (artwork IS NOT NULL) AS has_artwork \
+             FROM local_tag_cache",
         )
         .fetch_all(&self.db)
         .await
         .unwrap_or_default();
 
         rows.into_iter()
-            .map(|(path, title, artist_name, album_name, track_number, duration_secs, is_lossless)| {
+            .map(|(path, title, artist_name, album_name, track_number, duration_secs, is_lossless, has_artwork)| {
                 (
                     PathBuf::from(path),
                     CachedTags {
@@ -93,6 +95,7 @@ impl LocalFilesystemProvider {
                         track_number: track_number.map(|n| n as u32),
                         duration_secs: duration_secs.map(|d| d as u32),
                         is_lossless,
+                        has_artwork,
                     },
                 )
             })
@@ -112,6 +115,16 @@ impl LocalFilesystemProvider {
         let artist_name = cached.and_then(|c| c.artist_name.clone()).filter(|a| !a.is_empty());
         let album_name = cached.and_then(|c| c.album_name.clone()).filter(|a| !a.is_empty()).or(folder_album_name);
         let is_lossless = cached.map(|c| c.is_lossless).unwrap_or(extension_is_lossless);
+        // The artist name itself is the only stable key available — there's
+        // no browseId concept for local files. `artist_tracks` normalizes
+        // (trim + lowercase) when matching this back.
+        let artist_ref = artist_name.clone();
+        let artwork_url = if cached.map(|c| c.has_artwork).unwrap_or(false) {
+            let encoded_ref: String = url::form_urlencoded::byte_serialize(path.to_string_lossy().as_bytes()).collect();
+            Some(format!("/api/library/local-artwork?ref={encoded_ref}"))
+        } else {
+            None
+        };
 
         Track {
             id: Uuid::new_v4(),
@@ -125,9 +138,9 @@ impl LocalFilesystemProvider {
                 is_lossless,
                 is_local: true,
             }],
-            artwork_url: None,
+            artwork_url,
             artist_name,
-            artist_ref: None,
+            artist_ref,
             album_name,
             album_ref,
             download_status: None,
@@ -138,8 +151,12 @@ impl LocalFilesystemProvider {
     /// to open/parse — the caller just leaves that file out of the cache
     /// update, so it keeps falling back to the filename/folder guess (and
     /// gets retried on the next scan) rather than the whole scan failing.
-    fn parse_tags(path: &Path) -> Option<(Option<String>, Option<String>, Option<String>, Option<i64>, Option<i64>, bool)> {
+    #[allow(clippy::type_complexity)]
+    fn parse_tags(
+        path: &Path,
+    ) -> Option<(Option<String>, Option<String>, Option<String>, Option<i64>, Option<i64>, bool, Option<(Vec<u8>, String)>)> {
         use lofty::file::{AudioFile, FileType, TaggedFileExt};
+        use lofty::picture::PictureType;
         use lofty::prelude::Accessor;
         use lofty::probe::Probe;
 
@@ -156,8 +173,11 @@ impl LocalFilesystemProvider {
         // are both `FileType::Mp4`) — defaults to lossy for Mp4 since AAC is
         // the far more common case in practice.
         let is_lossless = matches!(file_type, FileType::Flac | FileType::Wav | FileType::WavPack | FileType::Ape | FileType::Aiff);
+        let artwork = tag
+            .and_then(|t| t.get_picture_type(PictureType::CoverFront).or_else(|| t.pictures().first()))
+            .map(|pic| (pic.data().to_vec(), pic.mime_type().map(|m| m.as_str().to_string()).unwrap_or_else(|| "image/jpeg".to_string())));
 
-        Some((title, artist_name, album_name, track_number, duration_secs, is_lossless))
+        Some((title, artist_name, album_name, track_number, duration_secs, is_lossless, artwork))
     }
 
     /// Walks the library, re-parsing tags only for files that are new or
@@ -202,10 +222,26 @@ impl LocalFilesystemProvider {
                 if known.get(path) == Some(&(mtime, size)) {
                     continue;
                 }
-                let Some((title, artist_name, album_name, track_number, duration_secs, is_lossless)) = Self::parse_tags(path) else {
+                let Some((title, artist_name, album_name, track_number, duration_secs, is_lossless, artwork)) = Self::parse_tags(path) else {
                     continue;
                 };
-                changed.push((path.to_string_lossy().into_owned(), mtime, size, title, artist_name, album_name, track_number, duration_secs, is_lossless));
+                let (artwork_bytes, artwork_mime) = match artwork {
+                    Some((bytes, mime)) => (Some(bytes), Some(mime)),
+                    None => (None, None),
+                };
+                changed.push((
+                    path.to_string_lossy().into_owned(),
+                    mtime,
+                    size,
+                    title,
+                    artist_name,
+                    album_name,
+                    track_number,
+                    duration_secs,
+                    is_lossless,
+                    artwork_bytes,
+                    artwork_mime,
+                ));
             }
 
             let gone: Vec<String> =
@@ -217,11 +253,11 @@ impl LocalFilesystemProvider {
 
         let Ok((changed, gone)) = scan else { return };
 
-        for (path, mtime, size, title, artist_name, album_name, track_number, duration_secs, is_lossless) in changed {
+        for (path, mtime, size, title, artist_name, album_name, track_number, duration_secs, is_lossless, artwork_bytes, artwork_mime) in changed {
             let _ = sqlx::query(
                 "INSERT OR REPLACE INTO local_tag_cache \
-                 (path, mtime, size, title, artist_name, album_name, track_number, duration_secs, is_lossless, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                 (path, mtime, size, title, artist_name, album_name, track_number, duration_secs, is_lossless, artwork, artwork_mime, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
             )
             .bind(path)
             .bind(mtime)
@@ -232,6 +268,8 @@ impl LocalFilesystemProvider {
             .bind(track_number)
             .bind(duration_secs)
             .bind(is_lossless)
+            .bind(artwork_bytes)
+            .bind(artwork_mime)
             .execute(&self.db)
             .await;
         }
@@ -332,5 +370,26 @@ impl MediaProvider for LocalFilesystemProvider {
         tracks.sort_by_key(|t| t.track_number.unwrap_or(u32::MAX));
         tracks.truncate(limit);
         Ok(tracks)
+    }
+
+    /// `artist_ref` is just the artist name itself (`track_from_path` sets
+    /// it to the same value as `artist_name` — no browseId concept exists
+    /// for local files), normalized here for matching so minor casing/
+    /// whitespace differences across files still group together.
+    async fn artist_tracks(&self, artist_ref: &str, limit: usize) -> Result<Vec<Track>, ProviderError> {
+        let needle = artist_ref.trim().to_lowercase();
+        let paths = self.all_audio_paths();
+        let cache = self.all_cached_tags().await;
+
+        let matches = paths
+            .into_iter()
+            .filter(|path| {
+                cache.get(path).and_then(|c| c.artist_name.as_deref()).map(|a| a.trim().to_lowercase() == needle).unwrap_or(false)
+            })
+            .take(limit)
+            .map(|path| self.track_from_path(&path, cache.get(&path)))
+            .collect();
+
+        Ok(matches)
     }
 }

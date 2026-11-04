@@ -2565,6 +2565,7 @@ dependencies = [
  "rand 0.8.8",
  "sqlx",
  "tokio",
+ "url",
  "uuid",
  "walkdir",
  "weave-core",
