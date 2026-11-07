@@ -2210,3 +2210,60 @@ form label {
   gap: 0.5rem;
   margin: 0.5rem 0 1rem;
 }
+
+/* ---- TV mode ---- */
+/* Toggled via useTvMode.ts adding/removing a `tv-mode` class on <html> —
+   see that file for detection. Scales the UI for 10-foot viewing by
+   bumping the root font-size: the stylesheet is overwhelmingly rem-based
+   (there's no separate font-size/spacing token system), so this
+   proportionally scales nearly all text, padding, and gaps at once
+   rather than needing ~60 individual font-size rules hand-tuned across
+   every view. Icons need no separate handling — icons.tsx's shared SVG
+   wrapper already sizes every icon via width/height: 1em, so they scale
+   with the root bump for free. The existing 640px mobile breakpoint is
+   untouched and never fires at TV viewport sizes, so there's no
+   interaction between the two. */
+html.tv-mode {
+  font-size: 140%;
+  --tv-safe-margin: 48px;
+}
+
+/* A handful of sizes are hardcoded px rather than rem and don't scale
+   with the root bump above. */
+html.tv-mode .artwork-sm {
+  width: 56px;
+  height: 56px;
+}
+
+html.tv-mode .artwork-md {
+  width: 68px;
+  height: 68px;
+}
+
+/* Thicker + glowing focus ring than the default — needs to read clearly
+   from couch distance, not just up close. */
+html.tv-mode input:focus-visible,
+html.tv-mode select:focus-visible,
+html.tv-mode button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px var(--accent-soft-bg);
+}
+
+/* Overscan-safe margin. TV overscan has no browser API to query
+   (env(safe-area-inset-*) only reports real device notches, not overscan
+   cropping), so unlike that convention this is a fixed value, not
+   something the platform reports — applied directly to every top-level,
+   independently-positioned full-screen surface (the fixed header/player
+   bar, and the fixed-inset overlays), since none of them are normal
+   flex children of a single padded container that outer padding could
+   apply to once. */
+html.tv-mode .app-header,
+html.tv-mode main,
+html.tv-mode .player-bar,
+html.tv-mode .now-playing,
+html.tv-mode .detail-view,
+html.tv-mode .jam-room {
+  padding-left: var(--tv-safe-margin);
+  padding-right: var(--tv-safe-margin);
+}
