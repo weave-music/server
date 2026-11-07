@@ -10,13 +10,16 @@ import { NowPlayingView } from "./NowPlayingView";
 import { PlayerBar } from "./PlayerBar";
 import { SearchView } from "./SearchView";
 import { Toast } from "./Toast";
+import { moveFocus } from "./spatialNav";
 import { useAuth } from "./useAuth";
+import { useBackHandler, popBackStack } from "./useBackHandler";
 import { useJam } from "./useJam";
 import { useLikes } from "./useLikes";
 import { useListeningHistory } from "./useListeningHistory";
 import { useQueue } from "./useQueue";
 import { useSleepTimer } from "./useSleepTimer";
 import { usePlaylists } from "./usePlaylists";
+import { useTvMode } from "./useTvMode";
 import type { Track } from "./types";
 
 // Lazy-loaded: not needed on first paint (AuthView only shows before a
@@ -32,13 +35,30 @@ const ProfileView = lazy(() => import("./ProfileView").then((m) => ({ default: m
 
 type Tab = "search" | "discover" | "queue" | "library" | "profile" | "admin";
 
+function isTextInput(el: Element | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
+}
+
 export default function App() {
   const { token, me, checking, login, setup, register, logout } = useAuth();
+  const isTv = useTvMode();
   const [tab, setTab] = useState<Tab>("discover");
   const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [detail, setDetail] = useState<DetailTarget | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [jamPanelOpen, setJamPanelOpen] = useState(false);
+
+  // Each of these three full-screen overlays is already mutually exclusive
+  // by app convention (openJamPanel below force-closes the other two), so
+  // registering all three independently still yields a correct one-level-
+  // at-a-time Back stack — at most one of them is ever actually "open" at
+  // once from here. Menus/popups nested inside them (TrackOverflowMenu,
+  // JamRoom's invite/settings) register themselves the same way.
+  useBackHandler(nowPlayingOpen, () => setNowPlayingOpen(false));
+  useBackHandler(!!detail, () => setDetail(null));
+  useBackHandler(jamPanelOpen, () => setJamPanelOpen(false));
   const queueApi = useQueue(token);
   const sleepTimer = useSleepTimer(queueApi.pause, queueApi.currentTrack?.id ?? null);
   const jamApi = useJam(token, queueApi);
@@ -62,19 +82,18 @@ export default function App() {
   // e.g. hitting space in the search box still types a space instead of
   // toggling playback.
   useEffect(() => {
-    function isTextInput(el: Element | null): boolean {
-      if (!el) return false;
-      const tag = el.tagName;
-      return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement).isContentEditable;
-    }
-
     function handleKeyDown(e: KeyboardEvent) {
       if (isTextInput(document.activeElement)) return;
+      // In TV mode, arrow keys move D-pad focus instead (see the
+      // spatial-navigation effect below) — volume/seek-by-arrow only make
+      // sense when there's a mouse/trackpad to use instead for navigation.
+      if (e.code === "Space") {
+        e.preventDefault();
+        queueApi.togglePlay();
+        return;
+      }
+      if (isTv) return;
       switch (e.code) {
-        case "Space":
-          e.preventDefault();
-          queueApi.togglePlay();
-          break;
         case "ArrowUp":
           e.preventDefault();
           queueApi.setVolume(Math.min(1, queueApi.volume + 0.05));
@@ -96,7 +115,68 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [queueApi]);
+  }, [queueApi, isTv]);
+
+  // TV mode only: D-pad arrow keys move focus (spatialNav.ts) instead of
+  // the volume/seek shortcuts above, Enter/OK already activates whatever's
+  // focused natively (every interactive element is a real <button>), and
+  // Back closes whichever overlay/menu is topmost (useBackHandler's shared
+  // stack). The history-trap technique is used for Back rather than
+  // listening for a specific key, since Android TV/Google TV's exact Back
+  // key event can't be verified without the real hardware — this
+  // intercepts whatever "back" gesture/button the platform actually
+  // triggers, platform-agnostically. A handful of known TV remotes' actual
+  // key codes are also handled directly, defensively/cheaply.
+  useEffect(() => {
+    if (!isTv) return;
+
+    function handleArrowNav(e: KeyboardEvent) {
+      if (isTextInput(document.activeElement)) return;
+      const direction =
+        e.code === "ArrowUp" ? "up" : e.code === "ArrowDown" ? "down" : e.code === "ArrowLeft" ? "left" : e.code === "ArrowRight" ? "right" : null;
+      if (!direction) return;
+      if (moveFocus(direction)) e.preventDefault();
+    }
+
+    function isBackKey(e: KeyboardEvent): boolean {
+      if (e.key === "Escape" || e.key === "GoBack" || e.key === "BrowserBack") return true;
+      // Tizen (10009) / webOS (461) remote Back key codes — cheap to
+      // handle even though the TV this ships for is Google TV, not Tizen.
+      return e.keyCode === 10009 || e.keyCode === 461;
+    }
+
+    function handleBack() {
+      popBackStack();
+    }
+
+    function handleBackKeydown(e: KeyboardEvent) {
+      if (!isBackKey(e)) return;
+      e.preventDefault();
+      handleBack();
+    }
+
+    // Keeps one dummy history entry present at all times, so a native
+    // "back" trigger (whatever it is on this platform) fires `popstate`
+    // here instead of actually navigating away from / closing the app.
+    function trapHistory() {
+      window.history.pushState({ tvTrap: true }, "");
+    }
+
+    trapHistory();
+    function handlePopState() {
+      handleBack();
+      trapHistory();
+    }
+
+    window.addEventListener("keydown", handleArrowNav);
+    window.addEventListener("keydown", handleBackKeydown);
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("keydown", handleArrowNav);
+      window.removeEventListener("keydown", handleBackKeydown);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [isTv]);
 
   // Every change of "current track" counts as a play, regardless of which
   // view started it (search, discover, a playlist, radio...) — this is what

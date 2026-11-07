@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { PlaylistIcon } from "./icons";
 import type { Track } from "./types";
+import { useBackHandler } from "./useBackHandler";
 
 interface Props {
   track: Track;
@@ -15,6 +16,8 @@ interface Props {
 export function AddToPlaylistMenu({ track, playlists, onAddToPlaylist, onCreatePlaylist }: Props) {
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState("");
+
+  useBackHandler(open, () => setOpen(false));
 
   function createAndAdd(e: React.FormEvent) {
     e.preventDefault();

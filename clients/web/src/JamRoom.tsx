@@ -24,6 +24,7 @@ import {
   type RemoteCommandName,
 } from "./jamApi";
 import type { Track } from "./types";
+import { useBackHandler } from "./useBackHandler";
 import { nextRepeatMode } from "./useQueue";
 
 interface Props {
@@ -153,6 +154,9 @@ export function JamRoom({
     setInviteMinimized(true);
     setShowSettings(true);
   }
+
+  useBackHandler(isHost && !!joinUrl && !inviteMinimized, () => setInviteMinimized(true));
+  useBackHandler(isHost && showSettings && !!settings && !!onUpdateSettings, () => setShowSettings(false));
 
   // Most recent log entry for a given track's source wins — good enough to
   // show "who added this" without the server needing to track consumption.

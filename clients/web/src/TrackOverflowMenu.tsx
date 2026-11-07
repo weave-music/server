@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DetailTarget } from "./DetailView";
 import type { Track } from "./types";
+import { useBackHandler } from "./useBackHandler";
 import type { useSleepTimer } from "./useSleepTimer";
 
 interface Props {
@@ -68,6 +69,8 @@ export function TrackOverflowMenu({
     setChoosingPlaylist(false);
     setChoosingSleepTimer(false);
   }
+
+  useBackHandler(open, close);
 
   const sleepTimerLabel =
     sleepTimer?.mode?.kind === "duration"
